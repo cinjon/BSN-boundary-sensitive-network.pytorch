@@ -14,13 +14,16 @@ def bi_loss(scores,anchors,opt):
 
     coef_0=0.5*(ratio)/(ratio-1)
     coef_1=coef_0*(ratio-1)
+    print(pmask.shape)
+    print(anchors.shape)
+    print(coef_1.shape)
     loss = coef_1*pmask*torch.log(anchors+0.00001) + coef_0*(1.0-pmask)*torch.log(1.0-anchors+0.00001)
     loss=-torch.mean(loss)
     num_sample=[torch.sum(pmask),ratio] 
     return loss,num_sample
 
 def TEM_loss_calc(anchors_action,anchors_start,anchors_end,
-             match_scores_action,match_scores_start,match_scores_end,opt):
+                  match_scores_action,match_scores_start,match_scores_end,opt):
     
     loss_action,num_sample_action=bi_loss(match_scores_action,anchors_action,opt)
     loss_start_small,num_sample_start_small=bi_loss(match_scores_start,anchors_start,opt)
@@ -38,7 +41,7 @@ def TEM_loss_function(y_action,y_start,y_end,TEM_output,opt):
     anchors_start = TEM_output[:,1,:]
     anchors_end = TEM_output[:,2,:]
     loss_dict=TEM_loss_calc(anchors_action,anchors_start,anchors_end,
-                     y_action,y_start,y_end,opt)
+                            y_action,y_start,y_end,opt)
     
     cost=2*loss_dict["loss_action"]+loss_dict["loss_start"]+loss_dict["loss_end"]
     loss_dict["cost"] = cost

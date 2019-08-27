@@ -210,6 +210,15 @@ def parse_opt():
         type=str,
         default="./output/evaluation_result.jpg")
 
+    parser.add_argument('--do_representation', action='store_true')
+    parser.add_argument('--representation_module', type=str, default='corrflow',
+                        help='the underlying representation module when using one. should have a forward call that yields a frozen repr and a linear transform func that get sthat representation into a manageable size.')
+    parser.add_argument('--representation_checkpoint', type=str, default='/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth',
+                        help='the checkpoint for the underlying representation module.')
+    parser.add_argument('--num_videoframes', type=int, default=None)
+    parser.add_argument('--skip_videoframes', type=int, default=1,
+                        help='the number of video frames to skip in between each one. the default of 1 means that there is no skip.')    
+    
     args = parser.parse_args()
 
     return args
