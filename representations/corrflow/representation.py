@@ -5,21 +5,36 @@ import torch.nn.functional as F
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, inchannel, outchannel, stride=1, kernel_size=3, activation=F.relu):
+
+    def __init__(self,
+                 inchannel,
+                 outchannel,
+                 stride=1,
+                 kernel_size=3,
+                 activation=F.relu):
         super(ResidualBlock, self).__init__()
         self.left = nn.Sequential(
-            nn.Conv2d(inchannel, outchannel, kernel_size=kernel_size, stride=stride, padding=(kernel_size-1)//2, bias=False),
-            nn.BatchNorm2d(outchannel),
+            nn.Conv2d(inchannel,
+                      outchannel,
+                      kernel_size=kernel_size,
+                      stride=stride,
+                      padding=(kernel_size - 1) // 2,
+                      bias=False), nn.BatchNorm2d(outchannel),
             nn.ReLU(inplace=True),
-            nn.Conv2d(outchannel, outchannel, kernel_size=kernel_size, stride=1, padding=(kernel_size-1)//2, bias=False),
-            nn.BatchNorm2d(outchannel)
-        )
+            nn.Conv2d(outchannel,
+                      outchannel,
+                      kernel_size=kernel_size,
+                      stride=1,
+                      padding=(kernel_size - 1) // 2,
+                      bias=False), nn.BatchNorm2d(outchannel))
         self.shortcut = nn.Sequential()
         if stride != 1 or inchannel != outchannel:
             self.shortcut = nn.Sequential(
-                nn.Conv2d(inchannel, outchannel, kernel_size=1, stride=stride, bias=False),
-                nn.BatchNorm2d(outchannel)
-            )
+                nn.Conv2d(inchannel,
+                          outchannel,
+                          kernel_size=1,
+                          stride=stride,
+                          bias=False), nn.BatchNorm2d(outchannel))
         self.activation = activation
 
     def forward(self, x):
@@ -30,12 +45,13 @@ class ResidualBlock(nn.Module):
 
 
 class Representation(nn.Module):
+
     def __init__(self, opts):
         super(Representation, self).__init__()
         # In opts is information needed for the mapping.
         # In particlar, we need to output a representation of size
         # opt['tem_feat_dim'] from mapping.
-        
+
         # NOTE: We are going to residual block the shit out of this to get it to a manageable sized representation.
         self.opts = opts
         self.inchannels = 32
@@ -56,7 +72,7 @@ class Representation(nn.Module):
         out = out.view(out.shape[0], -1)
         out = self.fc_layer(out)
         return out
-    
+
     def make_layer(self, block, out_channels, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
@@ -64,4 +80,3 @@ class Representation(nn.Module):
             layers.append(block(self.inchannels, out_channels, stride))
             self.inchannel = out_channels
         return nn.Sequential(*layers)
-    

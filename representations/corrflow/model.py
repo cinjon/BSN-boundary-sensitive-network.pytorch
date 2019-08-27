@@ -30,22 +30,23 @@ def img_loading_func(path):
     # This should output RGB.
     img = np.load(path) / 255.
     img = img.astype(np.float32)
-    
+
     M = 8
-    h,w = img.shape[0], img.shape[1]
-    if w%M != 0: img = img[:,:-(w%M)]
-    if h%M != 0: img = img[:-(h%M),]
+    h, w = img.shape[0], img.shape[1]
+    if w % M != 0: img = img[:, :-(w % M)]
+    if h % M != 0: img = img[:-(h % M),]
     return transforms.ToTensor()(img)
 
-    
+
 class Model(nn.Module):
+
     def __init__(self, opts):
         super(Model, self).__init__()
-        
+
         # Model options
         self.p = 0.3
         self.feature_extraction = ResNet18(3)
-        self.post_convolution = nn.Conv2d(256, 64, 3, 1, 1)        
+        self.post_convolution = nn.Conv2d(256, 64, 3, 1, 1)
 
     def forward(self, imgs):
         # The return for a [3,256,488] image is [1, 64, 64, 112]
@@ -54,7 +55,7 @@ class Model(nn.Module):
         imgs = self.post_convolution(self.feature_extraction(imgs))
         return imgs
 
-    def dropout2d(self, arr): # drop same layers for all images
+    def dropout2d(self, arr):  # drop same layers for all images
         if not self.training:
             return arr
 
@@ -73,5 +74,7 @@ class Model(nn.Module):
 
     @staticmethod
     def translate(pretrained):
-        return {k.replace('module', 'representation_model'): v
-                for k, v in pretrained.items()}
+        return {
+            k.replace('module', 'representation_model'): v
+            for k, v in pretrained.items()
+        }
