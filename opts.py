@@ -46,6 +46,7 @@ def parse_opt():
     parser.add_argument('--tem_batch_size', type=int, default=16)
     parser.add_argument('--tem_match_thres', type=float, default=0.5)
     parser.add_argument('--tem_compute_loss_interval', type=float, default=100)    
+    parser.add_argument('--tem_train_subset', type=str, default='train', help='can be train or overfit.')
 
     # PEM Training settings
     parser.add_argument('--pem_training_lr', type=float, default=0.01)

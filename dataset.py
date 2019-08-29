@@ -46,9 +46,12 @@ class GymnasticsSampler(data.WeightedRandomSampler):
         per_video_frame_off_ratio = {k: per_video_frame_off_count[k] * 1. / per_video_frame_count[k]
                                      for k in per_video_frame_off_count.keys()}
 
+        bef = [w for w in weights]
         for num, (k, frame) in enumerate(frame_list):
             if frame in off_indices[k]:
-                weights[num] *= per_video_frame_off_ratio[k] / 0.5
+                weights[num] *= 0.5 / per_video_frame_off_ratio[k]
+            else:
+                weights[num] *= 0.5 / (1 - per_video_frame_off_ratio[k])
 
         super(GymnasticsSampler, self).__init__(weights, len(weights), replacement=True)
 

@@ -8,7 +8,6 @@ def bi_loss(scores, anchors, opt):
     scores = scores.view(-1).cuda()
     anchors = anchors.contiguous().view(-1)
     l1 = torch.mean(torch.abs(scores - anchors))
-    print(scores[:10], anchors[:10])
 
     pmask = (scores > opt["tem_match_thres"]).float().cuda()
     num_positive = torch.sum(pmask)

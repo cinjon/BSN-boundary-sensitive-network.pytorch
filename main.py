@@ -169,7 +169,7 @@ def BSN_Train_TEM(opt):
                            lr=opt["tem_training_lr"],
                            weight_decay=opt["tem_weight_decay"])
 
-    video_data_set = VideoDataSet(opt, subset="train", img_loading_func=img_loading_func)
+    video_data_set = VideoDataSet(opt, subset=opt['tem_train_subset'], img_loading_func=img_loading_func)
     train_sampler = GymnasticsSampler(video_data_set.video_dict, video_data_set.frame_list, opt['skip_videoframes'])
     train_loader = torch.utils.data.DataLoader(
         video_data_set,
