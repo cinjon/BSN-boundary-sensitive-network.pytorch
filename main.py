@@ -1,6 +1,8 @@
+from comet_ml import Experiment as CometExperiment, OfflineExperiment
 import sys
 sys.dont_write_bytecode = True
 import os
+import time
 import json
 import torch
 import torchvision
@@ -9,7 +11,7 @@ import torch.optim as optim
 import numpy as np
 from tensorboardX import SummaryWriter
 import opts
-from dataset import VideoDataSet, ProposalDataSet
+from dataset import VideoDataSet, ProposalDataSet, GymnasticsSampler
 from models import TEM, PEM, partial_load, get_img_loader
 from loss_function import TEM_loss_function, PEM_loss_function
 import pandas as pd
@@ -18,80 +20,93 @@ from post_processing import BSN_post_processing
 from eval import evaluation_proposal
 
 
-def train_TEM(data_loader, model, optimizer, epoch, writer, opt):
+def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt):
     model.train()
     if opt['do_representation']:
         model.module.set_eval_representation()
-    epoch_action_loss = 0
-    epoch_start_loss = 0
-    epoch_end_loss = 0
-    epoch_cost = 0
+        
+    count = 0
+    keys = ['action_loss', 'start_loss', 'end_loss', 'total_loss', 'action_l1', 'start_l1', 'end_l1', 'action_positive', 'start_positive', 'end_positive', 'entries']
+    epoch_sums = {k: 0 for k in keys}
+    
+    if comet_exp:
+        with comet_exp.train():
+            comet_exp.log_current_epoch(epoch)
+    
+    start = time.time()
     for n_iter, (input_data, label_action, label_start,
                  label_end) in enumerate(data_loader):
         TEM_output = model(input_data)
-        print(TEM_output.shape)
-        print(label_action.shape)
         loss = TEM_loss_function(label_action, label_start, label_end,
                                  TEM_output, opt)
-        cost = loss["cost"]
-
+        total_loss = loss["total_loss"]
         optimizer.zero_grad()
-        cost.backward()
+        total_loss.backward()
         optimizer.step()
+        global_step += 1
 
-        epoch_action_loss += loss["loss_action"].cpu().detach().numpy()
-        epoch_start_loss += loss["loss_start"].cpu().detach().numpy()
-        epoch_end_loss += loss["loss_end"].cpu().detach().numpy()
-        epoch_cost += loss["cost"].cpu().detach().numpy()
+        if global_step % opt['tem_compute_loss_interval'] == 0:
+            values = {k: loss[k].cpu().detach().numpy()
+                      for k in epoch_sums if k != 'entries'}
+            values['entries'] = loss['entries']
+            epoch_sums = {k: v + epoch_sums[k] for k, v in values.items()}
+            count += 1
+            steps_per_second = n_iter / (time.time() - start)
+            values['steps_per_second'] = steps_per_second
+            print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
+            s = ", ".join(['%s --> %.3f' % (key, epoch_sums[key] / count) for key, value in zip(keys, values)])
+            print("TEM avg so far this epoch: %s." % s)
+            if comet_exp:
+                with comet_exp.train():
+                    comet_exp.log_metrics(values, step=global_step, epoch=epoch)
 
-    writer.add_scalars('data/action',
-                       {'train': epoch_action_loss / (n_iter + 1)}, epoch)
-    writer.add_scalars('data/start', {'train': epoch_start_loss / (n_iter + 1)},
-                       epoch)
-    writer.add_scalars('data/end', {'train': epoch_end_loss / (n_iter + 1)},
-                       epoch)
-    writer.add_scalars('data/cost', {'train': epoch_cost / (n_iter + 1)}, epoch)
-
-    print(
-        "TEM training loss(epoch %d): action - %.03f, start - %.03f, end - %.03f"
-        % (epoch, epoch_action_loss / (n_iter + 1), epoch_start_loss /
-           (n_iter + 1), epoch_end_loss / (n_iter + 1)))
+    if comet_exp:
+        with comet_exp.train():
+            comet_exp.log_epoch_end(epoch)
+                                
+    return global_step + 1
 
 
-def test_TEM(data_loader, model, epoch, writer, opt):
+def test_TEM(data_loader, model, epoch, global_step, comet_exp, opt):
     model.eval()
-    epoch_action_loss = 0
-    epoch_start_loss = 0
-    epoch_end_loss = 0
-    epoch_cost = 0
+    
+    keys = ['action_loss', 'start_loss', 'end_loss', 'total_loss', 'action_l1', 'start_l1', 'end_l1', 'action_positive', 'start_positive', 'end_positive', 'entries']
+    epoch_sums = {k: 0 for k in keys}
+    
     for n_iter, (input_data, label_action, label_start,
                  label_end) in enumerate(data_loader):
-
         TEM_output = model(input_data)
         loss = TEM_loss_function(label_action, label_start, label_end,
                                  TEM_output, opt)
-        epoch_action_loss += loss["loss_action"].cpu().detach().numpy()
-        epoch_start_loss += loss["loss_start"].cpu().detach().numpy()
-        epoch_end_loss += loss["loss_end"].cpu().detach().numpy()
-        epoch_cost += loss["cost"].cpu().detach().numpy()
+        for k in keys:
+            if k == 'entries':
+                epoch_sums[k] += loss[k]
+            else:
+                epoch_sums[k] += loss[k].cpu().detach().numpy()
+                
+        if n_iter % opt['tem_compute_loss_interval'] == 0:
+            print('\nTest - Local Step %d / %d.' % (n_iter, len(data_loader)))
 
-    writer.add_scalars('data/action',
-                       {'test': epoch_action_loss / (n_iter + 1)}, epoch)
-    writer.add_scalars('data/start', {'test': epoch_start_loss / (n_iter + 1)},
-                       epoch)
-    writer.add_scalars('data/end', {'test': epoch_end_loss / (n_iter + 1)},
-                       epoch)
-    writer.add_scalars('data/cost', {'test': epoch_cost / (n_iter + 1)}, epoch)
+    epoch_values = {k: v / (n_iter + 1) for k, v in epoch_sums.items()}
+    if comet_exp:
+        with comet_exp.test():
+            comet_exp.log_metrics(epoch_values, step=global_step, epoch=epoch)
 
-    print(
-        "TEM testing  loss(epoch %d): action - %.03f, start - %.03f, end - %.03f"
-        % (epoch, epoch_action_loss / (n_iter + 1), epoch_start_loss /
-           (n_iter + 1), epoch_end_loss / (n_iter + 1)))
-    state = {'epoch': epoch + 1, 'state_dict': model.state_dict()}
-    torch.save(state, opt["checkpoint_path"] + "/tem_checkpoint.pth.tar")
-    if epoch_cost < model.module.tem_best_loss:
-        model.module.tem_best_loss = np.mean(epoch_cost)
-        torch.save(state, opt["checkpoint_path"] + "/tem_best.pth.tar")
+    s = ", ".join(['%s --> %.3f' % (k, epoch_values[k]) for k in keys])
+    print("TEM avg test on epoch %d: %s." % (epoch, s))
+    state = {'epoch': epoch, 'global_step': global_step, 'state_dict': model.state_dict()}
+    save_dir = os.path.join(opt["checkpoint_path"], '%d.%s' % (opt['counter'], opt['name']))
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+        
+    save_path = os.path.join(save_dir, 'tem_checkpoint.%d.pth' % epoch)
+    torch.save(state, save_path)
+
+    total_loss = epoch_values['total_loss']
+    if total_loss < model.module.tem_best_loss:
+        model.module.tem_best_loss = total_loss
+        save_path = os.path.join(save_dir, 'tem_best.pth')
+        torch.save(state, save_path)
 
 
 def train_PEM(data_loader, model, optimizer, epoch, writer, opt):
@@ -128,7 +143,7 @@ def test_PEM(data_loader, model, epoch, writer, opt):
     print("PEM testing  loss(epoch %d): iou - %.04f" % (epoch, epoch_iou_loss /
                                                         (n_iter + 1)))
 
-    state = {'epoch': epoch + 1, 'state_dict': model.state_dict()}
+    state = {'epoch': epoch+1, 'state_dict': model.state_dict()}
     torch.save(state, opt["checkpoint_path"] + "/pem_checkpoint.pth.tar")
     if epoch_iou_loss < model.module.pem_best_loss:
         model.module.pem_best_loss = np.mean(epoch_iou_loss)
@@ -136,25 +151,32 @@ def test_PEM(data_loader, model, epoch, writer, opt):
 
 
 def BSN_Train_TEM(opt):
-    writer = SummaryWriter()
     if opt['do_representation']:
         model = TEM(opt)
         img_loading_func = get_img_loader(opt)
         partial_load(opt['representation_checkpoint'], model)
+        for param in model.representation_model.parameters():
+            param.requires_grad = False
     else:
         model = TEM(opt)
 
-    model = torch.nn.DataParallel(model, device_ids=[0]).cuda()
+    model = torch.nn.DataParallel(model).cuda()    
+    global_step = 0
 
+    print('    Total params: %.2fM' %
+          (sum(p.numel() for p in model.parameters()) / 1000000.0))
     optimizer = optim.Adam(model.parameters(),
                            lr=opt["tem_training_lr"],
                            weight_decay=opt["tem_weight_decay"])
 
+    video_data_set = VideoDataSet(opt, subset="train", img_loading_func=img_loading_func)
+    train_sampler = GymnasticsSampler(video_data_set.video_dict, video_data_set.frame_list, opt['skip_videoframes'])
     train_loader = torch.utils.data.DataLoader(
-        VideoDataSet(opt, subset="train", img_loading_func=img_loading_func),
+        video_data_set,
         batch_size=model.module.batch_size,
-        shuffle=True,
-        num_workers=8,
+        # shuffle=True,
+        sampler=train_sampler,
+        num_workers=opt['data_workers'],
         pin_memory=True,
         drop_last=True)
 
@@ -162,7 +184,7 @@ def BSN_Train_TEM(opt):
         VideoDataSet(opt, subset="test", img_loading_func=img_loading_func),
         batch_size=model.module.batch_size,
         shuffle=False,
-        num_workers=8,
+        num_workers=opt['data_workers'],
         pin_memory=True,
         drop_last=True)
 
@@ -170,15 +192,36 @@ def BSN_Train_TEM(opt):
                                                 step_size=opt["tem_step_size"],
                                                 gamma=opt["tem_step_gamma"])
 
-    for epoch in range(opt["tem_epoch"]):
-        train_TEM(train_loader, model, optimizer, epoch, writer, opt)
-        test_TEM(test_loader, model, epoch, writer, opt)
-        scheduler.step()
-    writer.close()
+    if opt['log_to_comet']:
+        comet_exp = CometExperiment(api_key="hIXq6lDzWzz24zgKv7RYz6blo",
+                                    project_name="bsn",
+                                    workspace="cinjon",
+                                    auto_metric_logging=True,
+                                    auto_output_logging=None,
+                                    auto_param_logging=False)
+    elif opt['local_comet_dir']:
+        comet_exp = OfflineExperiment(
+            api_key="hIXq6lDzWzz24zgKv7RYz6blo",
+            project_name="bsn",
+            workspace="cinjon",
+            auto_metric_logging=True,
+            auto_output_logging=None,
+            auto_param_logging=False,
+            offline_directory=opt['local_comet_dir'])
+    else:
+        comet_exp = None
 
+    if comet_exp:
+        comet_exp.log_parameters(opt)
+        comet_exp.set_name(opt['name'])
+    
+    for epoch in range(opt["tem_epoch"]):
+        global_step = train_TEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
+        scheduler.step()
+        test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)
+        
 
 def BSN_Train_PEM(opt):
-    writer = SummaryWriter()
     model = PEM(opt)
     model = torch.nn.DataParallel(model, device_ids=[0]).cuda()
 
@@ -195,7 +238,7 @@ def BSN_Train_PEM(opt):
         ProposalDataSet(opt, subset="train"),
         batch_size=model.module.batch_size,
         shuffle=True,
-        num_workers=8,
+        num_workers=opt['data_workers'],
         pin_memory=True,
         drop_last=True,
         collate_fn=collate_fn)
@@ -204,7 +247,7 @@ def BSN_Train_PEM(opt):
         ProposalDataSet(opt, subset="test"),
         batch_size=model.module.batch_size,
         shuffle=True,
-        num_workers=8,
+        num_workers=opt['data_workers'],
         pin_memory=True,
         drop_last=True,
         collate_fn=collate_fn)
@@ -236,7 +279,7 @@ def BSN_inference_TEM(opt):
         VideoDataSet(opt, subset="full"),
         batch_size=model.module.batch_size,
         shuffle=False,
-        num_workers=8,
+        num_workers=opt['data_workers'],
         pin_memory=True,
         drop_last=False)
 
@@ -280,7 +323,7 @@ def BSN_inference_PEM(opt):
         ProposalDataSet(opt, subset=opt["pem_inference_subset"]),
         batch_size=model.module.batch_size,
         shuffle=False,
-        num_workers=8,
+        num_workers=opt['data_workers'],
         pin_memory=True,
         drop_last=False)
 
@@ -304,6 +347,16 @@ def BSN_inference_PEM(opt):
 
 
 def main(opt):
+    np.random.seed(opt['seed'])
+    torch.manual_seed(opt['seed'])
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+    num_gpus = opt['num_gpus']
+    opt['tem_batch_size'] *= num_gpus
+    opt['tem_training_lr'] *= num_gpus
+    print(opt)
+            
     if opt["module"] == "TEM":
         if opt["mode"] == "train":
             print("TEM training start")

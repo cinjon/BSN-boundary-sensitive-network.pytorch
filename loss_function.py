@@ -7,44 +7,48 @@ import torch.nn.functional as F
 def bi_loss(scores, anchors, opt):
     scores = scores.view(-1).cuda()
     anchors = anchors.contiguous().view(-1)
+    l1 = torch.mean(torch.abs(scores - anchors))
+    print(scores[:10], anchors[:10])
 
     pmask = (scores > opt["tem_match_thres"]).float().cuda()
     num_positive = torch.sum(pmask)
     num_entries = len(scores)
-    ratio = num_entries / num_positive
+    # I made it do the +1 below and the ratio + 1e-6
+    ratio = (num_entries + 1) / (num_positive + 1)
+    ratio += 1e-6
 
     coef_0 = 0.5 * (ratio) / (ratio - 1)
     coef_1 = coef_0 * (ratio - 1)
-    print(pmask.shape)
-    print(anchors.shape)
-    print(coef_1.shape)
     loss = coef_1 * pmask * torch.log(anchors + 0.00001) + coef_0 * (
         1.0 - pmask) * torch.log(1.0 - anchors + 0.00001)
     loss = -torch.mean(loss)
-    num_sample = [torch.sum(pmask), ratio]
-    return loss, num_sample
+    num_sample = [num_positive, ratio, num_entries]
+    return loss, num_sample, l1
 
 
 def TEM_loss_calc(anchors_action, anchors_start, anchors_end,
                   match_scores_action, match_scores_start, match_scores_end,
                   opt):
 
-    loss_action, num_sample_action = bi_loss(match_scores_action,
-                                             anchors_action, opt)
-    loss_start_small, num_sample_start_small = bi_loss(match_scores_start,
-                                                       anchors_start, opt)
-    loss_end_small, num_sample_end_small = bi_loss(match_scores_end,
-                                                   anchors_end, opt)
+    action_loss, num_sample_action, action_l1 = bi_loss(match_scores_action,
+                                                        anchors_action, opt)
+    start_loss, num_sample_start, start_l1 = bi_loss(match_scores_start,
+                                                     anchors_start, opt)
+    end_loss, num_sample_end, end_l1 = bi_loss(match_scores_end,
+                                               anchors_end, opt)
 
     loss_dict = {
-        "loss_action": loss_action,
-        "num_sample_action": num_sample_action,
-        "loss_start": loss_start_small,
-        "num_sample_start": num_sample_start_small,
-        "loss_end": loss_end_small,
-        "num_sample_end": num_sample_end_small
+        "action_loss": action_loss,
+        "action_positive": num_sample_action[0],
+        "action_l1": action_l1,
+        "start_loss": start_loss,
+        "start_positive": num_sample_start[0],
+        "start_l1": start_l1,
+        "end_loss": end_loss,
+        "end_positive": num_sample_end[0],
+        "end_l1": end_l1,
+        "entries": num_sample_action[2]
     }
-    #print loss_dict
     return loss_dict
 
 
@@ -55,9 +59,9 @@ def TEM_loss_function(y_action, y_start, y_end, TEM_output, opt):
     loss_dict = TEM_loss_calc(anchors_action, anchors_start, anchors_end,
                               y_action, y_start, y_end, opt)
 
-    cost = 2 * loss_dict["loss_action"] + loss_dict["loss_start"] + loss_dict[
-        "loss_end"]
-    loss_dict["cost"] = cost
+    total_loss = 2 * loss_dict["action_loss"] + loss_dict["start_loss"] + loss_dict[
+        "end_loss"]
+    loss_dict["total_loss"] = total_loss
     return loss_dict
 
 

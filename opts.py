@@ -45,6 +45,7 @@ def parse_opt():
     parser.add_argument('--tem_step_gamma', type=float, default=0.1)
     parser.add_argument('--tem_batch_size', type=int, default=16)
     parser.add_argument('--tem_match_thres', type=float, default=0.5)
+    parser.add_argument('--tem_compute_loss_interval', type=float, default=100)    
 
     # PEM Training settings
     parser.add_argument('--pem_training_lr', type=float, default=0.01)
@@ -110,6 +111,42 @@ def parse_opt():
         'the number of video frames to skip in between each one. the default of 1 means that there is no skip.'
     )
 
+    parser.add_argument('--log_to_comet', action='store_true', default=False)
+    parser.add_argument('--log_to_comet_every', default=50, type=int)
+    parser.add_argument('--local_comet_dir',
+			type=str,
+			default=None,
+			help='local dir to process comet locally only. '
+			'primarily for fb, will stop remote calls.')
+
+    parser.add_argument('--name',
+			type=str,
+			help='the identifying name of this experiment.',
+			default=None)
+    parser.add_argument('--counter',
+			type=int,
+			help='the integer counter of this experiment. '
+			'defaults to None because Cinjon is likely the '
+			'only one who is going to use it.')
+    parser.add_argument(
+        '--data_workers',
+        type=int,
+        default=8,
+        help='the number of workers to pull data',
+    )
+    parser.add_argument(
+        '--seed',
+        type=int,
+        default=0,
+        help='the seed',
+    )
+    parser.add_argument(
+        '--num_gpus',
+        type=int,
+        default=1,
+        help='the seed',
+    )
+    
     args = parser.parse_args()
 
     return args

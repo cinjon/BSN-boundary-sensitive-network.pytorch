@@ -30,21 +30,9 @@ def partial_load(checkpoint_path, model):
     pretrained_dict = checkpoint['state_dict']
     pretrained_dict = model.translate(pretrained_dict)
     model_dict = model.state_dict()
-
-    print(len(pretrained_dict), len(model_dict),
-          len(set(pretrained_dict.keys()).intersection(set(model_dict.keys()))))
-    print('***')
-    # 1. filter out unnecessary keys
-    print(pretrained_dict['representation_model.post_convolution.bias'][0])
-    # 2. overwrite entries in the existing state dict
-    print('\nBEFORE\n')
-    print(model.representation_model.post_convolution.bias[0])
-    print('\nAfter\n')
     model_dict.update(pretrained_dict)
-    # 3. load the new state dict
     model.load_state_dict(model_dict)
-    print(model.representation_model.post_convolution.bias[0])
-    print('\n')
+
 
 
 class TEM(torch.nn.Module):
@@ -98,8 +86,8 @@ class TEM(torch.nn.Module):
     @staticmethod
     def weight_init(m):
         if isinstance(m, nn.Conv1d):
-            init.xavier_normal(m.weight)
-            init.constant(m.bias, 0)
+            init.xavier_normal_(m.weight)
+            init.constant_(m.bias, 0)
         elif isinstance(m, nn.Conv2d):
             init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
         elif isinstance(m, nn.BatchNorm2d):
@@ -115,11 +103,11 @@ class TEM(torch.nn.Module):
         if self.do_representation:
             with torch.no_grad():
                 x = self.representation_model(x)
-                print('post representation modeul: ', x.shape)
             x = self.representation_mapping(x)
-        print('shape of repr: ', x.shape)
-        adj_batch_side, num_features = x.shape
-        x = x.view(self.batch_size, num_features, self.num_videoframes)
+        adj_batch_size, num_features = x.shape
+        # This might be different because of data parallelism
+        batch_size = int(adj_batch_size / self.num_videoframes)
+        x = x.view(batch_size, num_features, self.num_videoframes)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = torch.sigmoid(0.01 * self.conv3(x))

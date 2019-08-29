@@ -15,6 +15,44 @@ def load_json(file):
         return data
 
 
+class GymnasticsSampler(data.WeightedRandomSampler):
+    def __init__(self, video_dict, frame_list, skip_videoframes):
+        """
+        Args:
+          video_dict: A dict of key to video_info.
+          frame_list: A list of (key, index into that key's video). This is what the Dataset is using
+            and what we need to give sample weights for.
+        """
+        per_video_frame_count = {k: int(v['duration_frame']) for k, v in video_dict.items()}
+        total_frame_count = sum(list(per_video_frame_count.values()))
+        # Initial weight count is inversely proportional to the number of frames in that video.
+        # The fewer the number of frames, the higher chance there is of selecting from that video.
+        weights = [total_frame_count * 1. / per_video_frame_count[k] for k, _ in frame_list]
+
+        per_video_frame_off_count = {k: 0 for k in video_dict.keys()}
+        off_indices = {k: set() for k in video_dict.keys()}
+        on_indices = {k: set() for k in video_dict.keys()}
+        for k, video_info in video_dict.items():
+            fps = video_info['fps']
+            for anno in video_info['annotations']:
+                end_frame = round(anno['segment'][1] * fps)
+                start_frame = round(anno['segment'][0] * fps)
+                count = end_frame - start_frame
+                if anno['label'] == 'off':
+                    per_video_frame_off_count[k] += count
+                    off_indices[k].update(range(start_frame, end_frame))
+                else:
+                    on_indices[k].update(range(start_frame, end_frame))                    
+        per_video_frame_off_ratio = {k: per_video_frame_off_count[k] * 1. / per_video_frame_count[k]
+                                     for k in per_video_frame_off_count.keys()}
+
+        for num, (k, frame) in enumerate(frame_list):
+            if frame in off_indices[k]:
+                weights[num] *= per_video_frame_off_ratio[k] / 0.5
+
+        super(GymnasticsSampler, self).__init__(weights, len(weights), replacement=True)
+
+
 class VideoDataSet(data.Dataset):
 
     def __init__(self, opt, subset="train", img_loading_func=None):
@@ -31,6 +69,9 @@ class VideoDataSet(data.Dataset):
         if self.do_representation:
             self.num_videoframes = opt['num_videoframes']
             self.skip_videoframes = opt['skip_videoframes']
+            # lol, yeah.
+            self.temporal_scale = self.num_videoframes
+            self.temporal_gap = 1. / self.temporal_scale
         else:
             self.feature_path = opt["feature_path"]
         self.boundary_ratio = opt["boundary_ratio"]
@@ -52,13 +93,17 @@ class VideoDataSet(data.Dataset):
                 self.video_dict[video_name] = video_info
         self.video_list = self.video_dict.keys()
         # Frame list is used when do_representation
+        # NOTE: We restrict frame_list to have a fraction of the total number of frames
+        # It is probably the case that we can expand the dataset a ton by not doing this
+        # but then most of the examples are really correlated.
+        # Instead, starting from frame 0, we select every skip'th frame.
         if self.do_representation:
+            skip = self.skip_videoframes
             self.frame_list = []
-            for k, v in self.video_dict.items():
+            for k, v in sorted(self.video_dict.items()):
+                num_frames = v['feature_frame'] - self.num_videoframes * skip
                 self.frame_list.extend([
-                    (k, i)
-                    for i in range(v['feature_frame'] -
-                                   self.num_videoframes * self.skip_videoframes)
+                    (k, i) for i in range(0, num_frames, skip)
                 ])
 
         print("%s subset video numbers: %d" %
@@ -144,25 +189,36 @@ class VideoDataSet(data.Dataset):
         fps = video_info['fps']
         corrected_second = float(feature_frame) / video_frame * video_second
         video_labels = video_info['annotations']
-        if start is not None:
+        if start is not None and end is not None:
             video_labels = [
                 anno for anno in video_labels
                 if start <= fps * anno['segment'][1]
             ]
-
-        if end is not None:
             video_labels = [
                 anno for anno in video_labels if end >= fps * anno['segment'][0]
             ]
+            corrected_second = (end - start) / fps
 
+        # NOTE: With the original code, there was an assumption that this was the entire video.
+        # We don't make that assumption and so in training we need to correct for this by telling
+        # the model to only predict over the range of time given.
         gt_bbox = []
         for j in range(len(video_labels)):
             tmp_info = video_labels[j]
-            tmp_start = max(min(1, tmp_info['segment'][0] / corrected_second),
+            if tmp_info['label'] == 'off':
+                continue
+            tmp_start = max(min(1, (tmp_info['segment'][0] - int(self.do_representation)*start*1./fps) / corrected_second),
                             0)
-            tmp_end = max(min(1, tmp_info['segment'][1] / corrected_second), 0)
+            tmp_end = max(min(1, (tmp_info['segment'][1] - int(self.do_representation)*start*1./fps) / corrected_second), 0)
             gt_bbox.append([tmp_start, tmp_end])
 
+        if len(gt_bbox) == 0:
+            # Only off in this segment.
+            match_score_action = torch.Tensor([0 for _ in range(len(anchor_xmin))])
+            match_score_start = torch.Tensor([0 for _ in range(len(anchor_xmin))])
+            match_score_end = torch.Tensor([0 for _ in range(len(anchor_xmin))])
+            return torch.Tensor(match_score_action), torch.Tensor(match_score_start), torch.Tensor(match_score_end)
+            
         gt_bbox = np.array(gt_bbox)
         gt_xmins = gt_bbox[:, 0]
         gt_xmaxs = gt_bbox[:, 1]
@@ -195,6 +251,7 @@ class VideoDataSet(data.Dataset):
                     self._ioa_with_anchors(anchor_xmin[jdx], anchor_xmax[jdx],
                                            gt_end_bboxs[:, 0],
                                            gt_end_bboxs[:, 1])))
+
         match_score_action = torch.Tensor(match_score_action)
         match_score_start = torch.Tensor(match_score_start)
         match_score_end = torch.Tensor(match_score_end)
@@ -242,8 +299,6 @@ class ProposalDataSet(data.Dataset):
             if self.subset in video_subset:
                 self.video_dict[video_name] = video_info
         self.video_list = self.video_dict.keys()
-        print("%s subset video numbers: %d" %
-              (self.subset, len(self.video_list)))
 
     def __len__(self):
         return len(self.video_list)
@@ -254,7 +309,6 @@ class ProposalDataSet(data.Dataset):
         pdf = pdf[:self.top_K]
         video_feature = np.load("./output/PGM_feature/" + video_name + ".npy")
         video_feature = video_feature[:self.top_K, :]
-        #print(len(video_feature),len(pdf))
         video_feature = torch.Tensor(video_feature)
 
         if self.mode == "train":

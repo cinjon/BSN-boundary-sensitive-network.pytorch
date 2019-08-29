@@ -53,17 +53,21 @@ class Representation(nn.Module):
         # opt['tem_feat_dim'] from mapping.
 
         # NOTE: We are going to residual block the shit out of this to get it to a manageable sized representation.
+        # The first input is [64, 64, 112]. We need to get it to
+        # [opt['tem_feat_dim']]. That's 180m parameters if you do
+        # a straight shot linear layer. No good.
+        
         self.opts = opts
         self.inchannels = 32
-        # Input is [64,64,112]
+        
         self.repr_conv1 = nn.Sequential(
             nn.Conv2d(64, 32, kernel_size=7, stride=2, padding=3, bias=False),
             nn.BatchNorm2d(32),
             nn.ReLU(),
         )
         self.repr_layer1 = self.make_layer(ResidualBlock, 32, 2, stride=2)
-        self.repr_layer2 = self.make_layer(ResidualBlock, 16, 1, stride=2)
-        self.fc_layer = nn.Linear(1792, 400)
+        self.repr_layer2 = self.make_layer(ResidualBlock, 32, 2, stride=2)
+        self.fc_layer = nn.Linear(3584, 400)
 
     def forward(self, representation):
         out = self.repr_conv1(representation)
