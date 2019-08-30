@@ -46,7 +46,6 @@ class GymnasticsSampler(data.WeightedRandomSampler):
         per_video_frame_off_ratio = {k: per_video_frame_off_count[k] * 1. / per_video_frame_count[k]
                                      for k in per_video_frame_off_count.keys()}
 
-        bef = [w for w in weights]
         for num, (k, frame) in enumerate(frame_list):
             if frame in off_indices[k]:
                 weights[num] *= 0.5 / per_video_frame_off_ratio[k]
@@ -101,13 +100,13 @@ class VideoDataSet(data.Dataset):
         # but then most of the examples are really correlated.
         # Instead, starting from frame 0, we select every skip'th frame.
         if self.do_representation:
-            skip = self.skip_videoframes
+            skip = self.skip_videoframes * self.num_videoframes
             self.frame_list = []
             for k, v in sorted(self.video_dict.items()):
-                num_frames = v['feature_frame'] - self.num_videoframes * skip
-                self.frame_list.extend([
-                    (k, i) for i in range(0, num_frames, skip)
-                ])
+                num_frames = v['feature_frame'] - skip
+                video_frames = [(k, i) for i in range(0, num_frames, skip)]
+                print('Video Dict: %s / total frames %d, frames after skipping %d' %  (k, num_frames, len(video_frames)))
+                self.frame_list.extend(video_frames)
 
         print("%s subset video numbers: %d" %
               (self.subset, len(self.video_list)))
@@ -288,7 +287,7 @@ class ProposalDataSet(data.Dataset):
         self.video_anno_path = opt["video_anno"]
 
         self._getDatasetDict()
-
+        
     def _getDatasetDict(self):
         anno_df = pd.read_csv(self.video_info_path)
         anno_database = load_json(self.video_anno_path)

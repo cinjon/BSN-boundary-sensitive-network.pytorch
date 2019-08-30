@@ -41,7 +41,9 @@ def generateProposals(opt, video_list, video_dict):
     peak_thres = opt["pgm_threshold"]
 
     for video_name in video_list:
-        tdf = pandas.read_csv("./output/TEM_results/" + video_name + ".csv")
+        results_path = os.path.join(opt['tem_results_dir'],
+                                    '%s.csv' % video_name)
+        tdf = pandas.read_csv(results_path)
         start_scores = tdf.start.values[:]
         end_scores = tdf.end.values[:]
 
@@ -129,8 +131,10 @@ def generateProposals(opt, video_list, video_dict):
             new_df["match_ioa"] = new_ioa_list
         except:
             pass
-        new_df.to_csv("./output/PGM_proposals/" + video_name + ".csv",
-                      index=False)
+
+        path = os.path.join(opt['pgm_proposals_dir'],
+                            '%s.csv' % video_name)
+        new_df.to_csv(path, index=False)
 
 
 def getDatasetDict(opt):

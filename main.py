@@ -20,7 +20,21 @@ from post_processing import BSN_post_processing
 from eval import evaluation_proposal
 
 
-def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt):
+def get_lr(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']
+    
+
+def compute_metrics(sums, loss, count):
+    values = {k: loss[k].cpu().detach().numpy()
+              for k in sums if k != 'entries'}
+    values['entries'] = loss['entries']
+    new_sums = {k: v + sums[k] for k, v in values.items()}
+    avg = {k: v / count for k, v in new_sums.items()}
+    return new_sums, avg
+
+
+def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt, start):
     model.train()
     if opt['do_representation']:
         model.module.set_eval_representation()
@@ -33,9 +47,15 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         with comet_exp.train():
             comet_exp.log_current_epoch(epoch)
     
-    start = time.time()
     for n_iter, (input_data, label_action, label_start,
                  label_end) in enumerate(data_loader):
+        if n_iter == 0:
+            print('Training')
+            
+        if time.time() - opt['start_time'] > opt['time']*3600 - 10 and comet_exp is not None:
+            comet_exp.end()
+            sys.exit(-1)
+        
         TEM_output = model(input_data)
         loss = TEM_loss_function(label_action, label_start, label_end,
                                  TEM_output, opt)
@@ -45,21 +65,31 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         optimizer.step()
         global_step += 1
 
-        if global_step % opt['tem_compute_loss_interval'] == 0:
-            values = {k: loss[k].cpu().detach().numpy()
-                      for k in epoch_sums if k != 'entries'}
-            values['entries'] = loss['entries']
-            epoch_sums = {k: v + epoch_sums[k] for k, v in values.items()}
+        if n_iter % opt['tem_compute_loss_interval'] == 0 and n_iter > 10:
             count += 1
-            steps_per_second = n_iter / (time.time() - start)
-            values['steps_per_second'] = steps_per_second
+            epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
+            
+            steps_per_second = (n_iter+1) / (time.time() - start)
+            epoch_avg['steps_per_second'] = steps_per_second
+            epoch_avg['current_lr'] = get_lr(optimizer)
             print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
-            s = ", ".join(['%s --> %.3f' % (key, epoch_sums[key] / count) for key, value in zip(keys, values)])
+            s = ", ".join(['%s --> %.3f' % (key, epoch_avg[key]) for key in epoch_avg])
             print("TEM avg so far this epoch: %s." % s)
             if comet_exp:
                 with comet_exp.train():
-                    comet_exp.log_metrics(values, step=global_step, epoch=epoch)
+                    comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
 
+    if n_iter % opt['tem_compute_loss_interval'] != 0:
+        epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
+        steps_per_second = (n_iter+1) / (time.time() - start)
+        epoch_avg['steps_per_second'] = steps_per_second
+        print('\n***End of Epoch %d***\nS/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
+        s = ", ".join(['%s --> %.3f' % (key, epoch_avg[key]) for key in epoch_avg])
+        print("TEM avg: %s." % s)
+        if comet_exp:
+            with comet_exp.train():
+                comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
+                    
     if comet_exp:
         with comet_exp.train():
             comet_exp.log_epoch_end(epoch)
@@ -75,6 +105,10 @@ def test_TEM(data_loader, model, epoch, global_step, comet_exp, opt):
     
     for n_iter, (input_data, label_action, label_start,
                  label_end) in enumerate(data_loader):
+        if time.time() - opt['start_time'] > opt['time']*3600 - 10 and comet_exp is not None:
+            comet_exp.end()
+            sys.exit(-1)
+            
         TEM_output = model(input_data)
         loss = TEM_loss_function(label_action, label_start, label_end,
                                  TEM_output, opt)
@@ -214,9 +248,10 @@ def BSN_Train_TEM(opt):
     if comet_exp:
         comet_exp.log_parameters(opt)
         comet_exp.set_name(opt['name'])
-    
+
+    start = time.time()
     for epoch in range(opt["tem_epoch"]):
-        global_step = train_TEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
+        global_step = train_TEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt, start)
         scheduler.step()
         test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)
         
@@ -266,17 +301,24 @@ def BSN_Train_PEM(opt):
 
 def BSN_inference_TEM(opt):
     model = TEM(opt)
-    checkpoint = torch.load(opt["checkpoint_path"] + "/tem_best.pth.tar")
+    img_loading_func = get_img_loader(opt)    
+    checkpoint_path = os.path.join(opt['checkpoint_path'], 'tem_best.pth')
+    checkpoint = torch.load(checkpoint_path)
     base_dict = {
         '.'.join(k.split('.')[1:]): v
         for k, v in list(checkpoint['state_dict'].items())
     }
     model.load_state_dict(base_dict)
-    model = torch.nn.DataParallel(model, device_ids=[0]).cuda()
+    model = torch.nn.DataParallel(model).cuda()
     model.eval()
 
+    output_dir = os.path.join(opt['tem_results_dir'], opt['checkpoint_path'].split('/')[-1])
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    dataset = VideoDataSet(opt, subset=opt['tem_results_subset'], img_loading_func=img_loading_func)
     test_loader = torch.utils.data.DataLoader(
-        VideoDataSet(opt, subset="full"),
+        dataset,
         batch_size=model.module.batch_size,
         shuffle=False,
         num_workers=opt['data_workers'],
@@ -284,8 +326,14 @@ def BSN_inference_TEM(opt):
         drop_last=False)
 
     columns = ["action", "start", "end", "xmin", "xmax"]
-    for index_list, input_data, anchor_xmin, anchor_xmax in test_loader:
-
+    if opt['do_representation']:
+        columns.append('frames')
+        
+    current_video = None
+    current_data = [[] for _ in range(len(columns))]
+    for test_idx, (index_list, input_data, anchor_xmin, anchor_xmax) in enumerate(test_loader):
+        # The data should be coming back s.t. consecutive data are from the same video.
+        # until there is a breakpoint and it starts a new video.
         TEM_output = model(input_data).detach().cpu().numpy()
         batch_action = TEM_output[:, 0, :]
         batch_start = TEM_output[:, 1, :]
@@ -296,17 +344,51 @@ def BSN_inference_TEM(opt):
         anchor_xmax = np.array([x.numpy()[0] for x in anchor_xmax])
 
         for batch_idx, full_idx in enumerate(index_list):
-            video = test_loader.dataset.video_list[full_idx]
-            video_action = batch_action[batch_idx]
-            video_start = batch_start[batch_idx]
-            video_end = batch_end[batch_idx]
-            video_result = np.stack((video_action, video_start, video_end,
-                                     anchor_xmin, anchor_xmax),
-                                    axis=1)
-            video_df = pd.DataFrame(video_result, columns=columns)
-            video_df.to_csv("./output/TEM_results/" + video + ".csv",
-                            index=False)
+            if opt['do_representation']:
+                video, frame = dataset.frame_list[full_idx]
+                if not current_video:
+                    print('First video: ', video, full_idx)
+                    current_video = video
+                    current_data = [[] for _ in range(len(columns))]
+                elif video != current_video:
+                    print('Changing from video %s to video %s: %d' % (current_video, video, full_idx))
+                    video_result = np.stack(current_data, axis=1)
+                    video_df = pd.DataFrame(video_result, columns=columns)
+                    
+                    path = os.path.join(output_dir, '%s.csv' % current_video)
+                    video_df.to_csv(path, index=False)
+                    current_video = video
+                    current_data = [[] for _ in range(len(columns))]
 
+                # NOTE: Here, we are extending but not saying where in the file it is.
+                #
+                start_frame = frame
+                end_frame = start_frame + opt['num_videoframes']*opt['skip_videoframes']
+                frames = range(start_frame, end_frame, opt['skip_videoframes'])
+                current_data[0].extend(batch_action[batch_idx])
+                current_data[1].extend(batch_start[batch_idx])
+                current_data[2].extend(batch_end[batch_idx])
+                current_data[3].extend(anchor_xmin)
+                current_data[4].extend(anchor_xmax)
+                current_data[5].extend(list(frames))
+            else:
+                video = dataset.video_list[full_idx]
+                video_action = batch_action[batch_idx]
+                video_start = batch_start[batch_idx]
+                video_end = batch_end[batch_idx]
+                video_result = np.stack((video_action, video_start, video_end,
+                                         anchor_xmin, anchor_xmax),
+                                        axis=1)
+                video_df = pd.DataFrame(video_result, columns=columns)
+                path = os.path.join(output_dir, '%s.csv' % video)
+                video_df.to_csv(path, index=False)
+
+    if current_data[0]:
+        video_result = np.stack(current_data, axis=1)
+        video_df = pd.DataFrame(video_result, columns=columns)
+        path = os.path.join(output_dir, '%s.csv' % current_video)
+        video_df.to_csv(path, index=False)
+             
 
 def BSN_inference_PEM(opt):
     model = PEM(opt)
@@ -353,6 +435,8 @@ def main(opt):
     torch.backends.cudnn.benchmark = False
 
     num_gpus = opt['num_gpus']
+    opt['base_training_lr'] = opt['tem_training_lr']
+    opt['base_batch_size'] = opt['tem_batch_size']
     opt['tem_batch_size'] *= num_gpus
     opt['tem_training_lr'] *= num_gpus
     print(opt)
@@ -364,8 +448,6 @@ def main(opt):
             print("TEM training finished")
         elif opt["mode"] == "inference":
             print("TEM inference start")
-            if not os.path.exists("output/TEM_results"):
-                os.makedirs("output/TEM_results")
             BSN_inference_TEM(opt)
             print("TEM inference finished")
         else:
@@ -411,9 +493,8 @@ def main(opt):
 if __name__ == '__main__':
     opt = opts.parse_opt()
     opt = vars(opt)
-    if not os.path.exists(opt["checkpoint_path"]):
-        os.makedirs(opt["checkpoint_path"])
     opt_file = open(opt["checkpoint_path"] + "/opts.json", "w")
+    opt['start_time'] = time.time()
     json.dump(opt, opt_file)
     opt_file.close()
     main(opt)

@@ -47,7 +47,9 @@ def parse_opt():
     parser.add_argument('--tem_match_thres', type=float, default=0.5)
     parser.add_argument('--tem_compute_loss_interval', type=float, default=100)    
     parser.add_argument('--tem_train_subset', type=str, default='train', help='can be train or overfit.')
-
+    parser.add_argument('--tem_results_dir', type=str, default=None, help='used for inference to generate the results that PGM_proposals uses.')
+    parser.add_argument('--tem_results_subset', type=str, default='full', help='can be full, train, or overfit.')
+    
     # PEM Training settings
     parser.add_argument('--pem_training_lr', type=float, default=0.01)
     parser.add_argument('--pem_weight_decay', type=float, default=0.00001)
@@ -75,7 +77,9 @@ def parse_opt():
     )  # num_sample_start + end + action should equal to pem_feat_dim
     parser.add_argument('--num_sample_interpld', type=int, default=3)
     parser.add_argument('--bsp_boundary_ratio', type=float, default=0.2)
-
+    parser.add_argument('--pgm_proposals_dir', type=str, default=None, help='used to save the pgm proposals.')
+    parser.add_argument('--pgm_subset', type=str, default='full', help='can be full, train, or overfit.')
+    
     # Post processing
     parser.add_argument('--post_process_top_K', type=int, default=100)
     parser.add_argument('--post_process_thread', type=int, default=8)
@@ -146,6 +150,12 @@ def parse_opt():
         type=int,
         default=1,
         help='the seed',
+    )
+    parser.add_argument(
+        '--time',
+        type=float,
+        default=4,
+        help='the number of hours',
     )
     
     args = parser.parse_args()

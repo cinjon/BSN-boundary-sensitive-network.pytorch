@@ -44,16 +44,15 @@ def _run_batch(job,
                local_comet_dir=None):
     _ensure_dirs(slurm_logs, slurm_scripts)
 
-    time = 48
-    if 'time' in job:
-        time = job.pop('time')
-        
+    time = job.get('time', 16)
+    hours = int(time)
+    minutes = int((time - hours) * 60)
+    
     if local_comet_dir:
         job['local_comet_dir'] = local_comet_dir
     job['checkpoint_path'] = checkpoint_path
 
     num_gpus = job['num_gpus']
-
     num_cpus = job.pop('num_cpus')
     job['data_workers'] = min(int(2.5 * num_gpus), num_cpus - num_gpus)
     job['data_workers'] = max(job['data_workers'], 12)
@@ -61,10 +60,8 @@ def _run_batch(job,
     gb = job.pop('gb')
     memory_per_node = min(gb, 500)
 
-    print(job)
-
     flagstring = " --counter %d" % counter
-    for key, value in job.items():
+    for key, value in sorted(job.items()):
         if type(value) == bool:
             if value == True:
                 flagstring += " --%s" % key
@@ -75,7 +72,7 @@ def _run_batch(job,
         else:
             flagstring += ' --%s %s' % (key, value)
 
-    jobname = "bsntem.%s" % job['name']
+    jobname = "tem.%s" % job['name']
     jobcommand = "python main.py %s" % flagstring
     print(jobcommand)
 
@@ -88,7 +85,7 @@ def _run_batch(job,
         f.write("#SBATCH --mail-user=%s\n" % email)
         f.write("#SBATCH --gres=ntasks-per-node=1\n")
         f.write("#SBATCH --cpus-per-task=%d\n" % num_cpus)
-        f.write("#SBATCH --time=%d:00:00\n" % time)
+        f.write("#SBATCH --time=%d:%d:00\n" % (hours, minutes))
         f.write("#SBATCH --gres=gpu:%d\n" % num_gpus)
         f.write("#SBATCH --mem=%dG\n" % memory_per_node)
         f.write("#SBATCH --nodes=1\n")
@@ -113,15 +110,15 @@ def fb_run_batch(job, counter, email, code_directory):
 
     def module_load(f):
         f.write("module load cuda/10.0\n")
-        # f.write("module load anaconda3/5.3.1\n")
-        # f.write("module load cuda/9.0.176\n")
-        # f.write("module load cudnn/9.0v7.3.0.29\n")
 
     directory = '/checkpoint/cinjon/spaceofmotion'
     slurm_logs = os.path.join(directory, 'bsn', 'slurm_logs')
     slurm_scripts = os.path.join(directory, 'bsn', 'slurm_scripts')
     comet_dir = os.path.join(directory, 'bsn', 'comet')
-    checkpoint_path = os.path.join(directory, 'bsn', 'checkpoint')    
+    checkpoint_path = os.path.join(directory, 'bsn', 'checkpoint')
+    if not os.path.exists(checkpoint_path):
+        os.makedirs(checkpoint_path)
+        
     _run_batch(job,
                counter,
                slurm_logs,
