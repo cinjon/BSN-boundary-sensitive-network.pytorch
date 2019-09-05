@@ -295,7 +295,6 @@ class ProposalDataSet(data.Dataset):
     def _exists(self, video_name):
         pgm_proposals_path = os.path.join(self.opt['pgm_proposals_dir'], '%s.proposals.csv' % video_name)
         pgm_features_path = os.path.join(self.opt['pgm_features_dir'], '%s.features.npy' % video_name)
-        # print(pgm_proposals_path, pgm_features_path)
         return os.path.exists(pgm_proposals_path) and os.path.exists(pgm_features_path)
         
     def _getDatasetDict(self):
@@ -311,12 +310,10 @@ class ProposalDataSet(data.Dataset):
             if self.subset in video_subset:
                 self.video_dict[video_name] = video_info
         self.video_list = sorted(self.video_dict.keys())
-        print('Bef Len vidlist: ', self.video_list)
         self.video_list = [k for k in self.video_list if self._exists(k)]
-        print('Aft Len vidlist: ', self.video_list)        
 
         if self.opt['pem_top_threshold']:
-            print('Doing top threshold...')
+            print('Doing top threshold of %.4f...' % self.opt['ptem_top_threshold'])
             self.features = {}
             self.proposals = {}
             self.indices = []
@@ -374,9 +371,6 @@ class ProposalDataSet(data.Dataset):
 
             if self.mode == "train":
                 video_match_iou = torch.Tensor(pdf.match_iou.values[:])
-                print('from getitiem')
-                print(video_feature.shape)
-                print(video_match_iou.shape)
                 return video_feature, video_match_iou
             else:
                 video_xmin = pdf.xmin.values[:]

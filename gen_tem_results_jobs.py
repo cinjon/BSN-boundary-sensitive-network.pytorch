@@ -15,7 +15,9 @@ code_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytor
 anno_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations'
 base_dir = '/checkpoint/cinjon/spaceofmotion/bsn'
 tem_dir = os.path.join(base_dir, 'teminf')
-tem_results_dir = os.path.join(tem_dir, 'results')
+tem_results_dir = os.path.join(tem_dir, 'results-tmp')
+if not os.path.exists(tem_results_dir):
+    os.makedirs(tem_results_dir)
 ckpt_directory = os.path.join(tem_dir, 'do_ckpts')
 
 regex = re.compile('.*(\d{5}).*')
@@ -31,11 +33,10 @@ for ckpt_subdir in os.listdir(ckpt_directory):
     _job['tem_results_subset'] = _job['tem_train_subset']
     if _job['tem_results_subset'] == 'train':
         _job['tem_results_subset'] = 'full'
+    _job['tem_results_subset'] = 'testing'
     _job['mode'] = 'inference'
     
     _job['checkpoint_path'] = os.path.join(ckpt_directory, ckpt_subdir)
-    if not os.path.exists(_job['checkpoint_path']):
-        os.makedirs(_job['checkpoint_path'])
     
-    print(counter, sorted(_job.items())
+    print(counter, sorted(_job.items()))
     fb_run_batch(_job, counter, email, code_directory)

@@ -512,7 +512,10 @@ def main(opt):
     opt['tem_training_lr'] *= num_gpus
     print(opt)
 
-    path = os.path.join(opt['checkpoint_path'], '%d.%s' % (opt['counter'], opt['name']), '%s.opts.json' % opt['module'])
+    path = opt['checkpoint_path']
+    if opt['module'] != 'TEM':
+        path = os.path.join(path, '%d.%s' % (opt['counter'], opt['name']))
+    path = os.path.join('%s.opts.json' % opt['module'])
     with open(path, 'w') as f:
         json.dump(opt, f)
     

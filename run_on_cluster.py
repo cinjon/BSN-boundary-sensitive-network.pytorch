@@ -90,8 +90,8 @@ def _run_batch(job,
         f.write("#SBATCH --cpus-per-task=%d\n" % num_cpus)
         f.write("#SBATCH --time=%d:%d:00\n" % (hours, minutes))
         if num_gpus > 0:
-            f.write("#SBATCH --gres=gpu:%d\n" % num_gpus)
             f.write("#SBATCH --gres=ntasks-per-node=1\n")
+            f.write("#SBATCH --gres=gpu:%d\n" % num_gpus)
         f.write("#SBATCH --mem=%dG\n" % memory_per_node)
         f.write("#SBATCH --nodes=1\n")
 

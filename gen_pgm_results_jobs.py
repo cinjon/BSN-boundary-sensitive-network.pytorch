@@ -16,7 +16,6 @@ anno_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytor
 base_dir = '/checkpoint/cinjon/spaceofmotion/bsn'
 tem_dir = os.path.join(base_dir, 'teminf')
 tem_results_dir = os.path.join(tem_dir, 'results')
-ckpt_directory = os.path.join(tem_dir, 'do_ckpts')
 pgm_proposals_dir = os.path.join(base_dir, 'pgmprops')
 pgm_feats_dir = os.path.join(base_dir, 'pgmfeats')
 
@@ -24,6 +23,9 @@ regex = re.compile('.*(\d{5}).*')
 
 for tem_results_subdir in os.listdir(tem_results_dir):
     counter = int(regex.match(tem_results_subdir).groups()[0])
+    if counter != 101:
+        continue
+    
     _job = run(find_counter=counter)
     _job['num_gpus'] = 0
     _job['num_cpus'] = 32

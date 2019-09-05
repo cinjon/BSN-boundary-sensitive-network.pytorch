@@ -6,7 +6,6 @@ python main.py --module PGM --do_representation --num_videoframes 25 --tem_resul
 # -*- coding: utf-8 -*-
 import json
 import os
-import shutil
 import time
 
 import numpy as np
@@ -178,8 +177,6 @@ def generate_proposals(opt, video_list, video_dict):
 
     tem_results_dir = opt['tem_results_dir']
     proposals_dir = os.path.join(opt['pgm_proposals_dir'], tem_results_dir.split('/')[-1])
-    if os.path.exists(proposals_dir):
-        shutil.rmtree(proposals_dir)
     if not os.path.exists(proposals_dir):
         os.makedirs(proposals_dir)
         
@@ -475,16 +472,19 @@ def PGM_proposal_generation(opt):
 
     tem_results_dir = opt['tem_results_dir']
     pgm_dir = os.path.join(pgm_dir, tem_results_dir.split('/')[-1])
-    if os.path.exists(pgm_dir):
-        shutil.rmtree(pgm_dir)
     if not os.path.exists(pgm_dir):
         os.makedirs(pgm_dir)
         
     video_dict = load_json(opt["video_anno"])
     video_list = sorted(video_dict.keys())  #[:199]
+    
     # NOTE: change this back.
-    # video_list = [k for k in video_list if '12.4.18-Part-1' in k]
-    # video_list = sorted(video_list, key=lambda k: ('12.4.18' in k, k))
+    video_list = [k for k in video_list if '12.18.18' in k or '12.5.18' in k]
+    print(video_list)
+    if len(video_list) > 2:
+        print('YO. wat?')
+        return
+    
     num_videos = len(video_list)
     num_threads = min(num_videos, opt['pgm_thread'])
     num_videos_per_thread = int(num_videos / num_threads)
@@ -526,6 +526,13 @@ def PGM_feature_generation(opt):
     
     video_dict = getDatasetDict(opt)
     video_list = sorted(video_dict.keys())
+    # NOTE: change this back.
+    video_list = [k for k in video_list if '12.18.18' in k or '12.5.18' in k]
+    print(video_list)
+    if len(video_list) > 2:
+        print('YO. wat?')
+        return
+    
     func = generate_features_repr if opt['do_representation'] else generate_features
     num_videos = len(video_list)
     num_threads = min(num_videos, opt['pgm_thread'])
