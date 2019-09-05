@@ -34,19 +34,20 @@ def compute_metrics(sums, loss, count):
     return new_sums, avg
 
 
-def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt, start):
+def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt):
     model.train()
     if opt['do_representation']:
         model.module.set_eval_representation()
         
-    count = 0
+    count = 1
     keys = ['action_loss', 'start_loss', 'end_loss', 'total_loss', 'action_l1', 'start_l1', 'end_l1', 'action_positive', 'start_positive', 'end_positive', 'entries']
     epoch_sums = {k: 0 for k in keys}
     
     if comet_exp:
         with comet_exp.train():
             comet_exp.log_current_epoch(epoch)
-    
+
+    start = time.time()
     for n_iter, (input_data, label_action, label_start,
                  label_end) in enumerate(data_loader):
         if n_iter == 0:
@@ -65,30 +66,30 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt,
         optimizer.step()
         global_step += 1
 
-        if n_iter % opt['tem_compute_loss_interval'] == 0 and n_iter > 10:
-            count += 1
+        if n_iter % opt['tem_compute_loss_interval'] == 0:
             epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
-            
-            steps_per_second = (n_iter+1) / (time.time() - start)
-            epoch_avg['steps_per_second'] = steps_per_second
+            count += 1
+            if n_iter > 10:
+                steps_per_second = (n_iter+1) / (time.time() - start)
+                epoch_avg['steps_per_second'] = steps_per_second
             epoch_avg['current_lr'] = get_lr(optimizer)
             print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
-            s = ", ".join(['%s --> %.3f' % (key, epoch_avg[key]) for key in epoch_avg])
+            s = ", ".join(['%s --> %.4f' % (key, epoch_avg[key]) for key in epoch_avg])
             print("TEM avg so far this epoch: %s." % s)
             if comet_exp:
                 with comet_exp.train():
                     comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
 
-    if n_iter % opt['tem_compute_loss_interval'] != 0:
-        epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
-        steps_per_second = (n_iter+1) / (time.time() - start)
-        epoch_avg['steps_per_second'] = steps_per_second
-        print('\n***End of Epoch %d***\nS/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
-        s = ", ".join(['%s --> %.3f' % (key, epoch_avg[key]) for key in epoch_avg])
-        print("TEM avg: %s." % s)
-        if comet_exp:
-            with comet_exp.train():
-                comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
+    print('Count: ', count)
+    epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
+    steps_per_second = (n_iter+1) / (time.time() - start)
+    epoch_avg['steps_per_second'] = steps_per_second
+    print('\n***End of Epoch %d***\nS/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
+    s = ", ".join(['%s --> %.3f' % (key, epoch_avg[key]) for key in epoch_avg])
+    print("TEM avg: %s." % s)
+    if comet_exp:
+        with comet_exp.train():
+            comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
                     
     if comet_exp:
         with comet_exp.train():
@@ -203,19 +204,19 @@ def BSN_Train_TEM(opt):
                            lr=opt["tem_training_lr"],
                            weight_decay=opt["tem_weight_decay"])
 
-    video_data_set = VideoDataSet(opt, subset=opt['tem_train_subset'], img_loading_func=img_loading_func)
-    train_sampler = GymnasticsSampler(video_data_set.video_dict, video_data_set.frame_list, opt['skip_videoframes'])
+    train_data_set = VideoDataSet(opt, subset=opt['tem_train_subset'], img_loading_func=img_loading_func, overlap_windows=True)
+    train_sampler = GymnasticsSampler(train_data_set.video_dict, train_data_set.frame_list)
     train_loader = torch.utils.data.DataLoader(
-        video_data_set,
+        train_data_set,
         batch_size=model.module.batch_size,
-        # shuffle=True,
         sampler=train_sampler,
         num_workers=opt['data_workers'],
         pin_memory=True,
         drop_last=True)
 
+    test_data_set = VideoDataSet(opt, subset="test", img_loading_func=img_loading_func)
     test_loader = torch.utils.data.DataLoader(
-        VideoDataSet(opt, subset="test", img_loading_func=img_loading_func),
+        test_data_set,
         batch_size=model.module.batch_size,
         shuffle=False,
         num_workers=opt['data_workers'],
@@ -249,9 +250,8 @@ def BSN_Train_TEM(opt):
         comet_exp.log_parameters(opt)
         comet_exp.set_name(opt['name'])
 
-    start = time.time()
     for epoch in range(opt["tem_epoch"]):
-        global_step = train_TEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt, start)
+        global_step = train_TEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         scheduler.step()
         test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)
         
@@ -454,17 +454,15 @@ def main(opt):
             print("Wrong mode. TEM has two modes: train and inference")
 
     elif opt["module"] == "PGM":
-        if not os.path.exists("output/PGM_proposals"):
-            os.makedirs("output/PGM_proposals")
         print("PGM: start generate proposals")
         PGM_proposal_generation(opt)
         print("PGM: finish generate proposals")
 
-        if not os.path.exists("output/PGM_feature"):
-            os.makedirs("output/PGM_feature")
-        print("PGM: start generate BSP feature")
-        PGM_feature_generation(opt)
-        print("PGM: finish generate BSP feature")
+        # if not os.path.exists("output/PGM_feature"):
+        #     os.makedirs("output/PGM_feature")
+        # print("PGM: start generate BSP feature")
+        # PGM_feature_generation(opt)
+        # print("PGM: finish generate BSP feature")
 
     elif opt["module"] == "PEM":
         if opt["mode"] == "train":

@@ -40,7 +40,6 @@ def _run_batch(job,
                directory,
                email,
                code_directory,
-               checkpoint_path,
                local_comet_dir=None):
     _ensure_dirs(slurm_logs, slurm_scripts)
 
@@ -50,7 +49,6 @@ def _run_batch(job,
     
     if local_comet_dir:
         job['local_comet_dir'] = local_comet_dir
-    job['checkpoint_path'] = checkpoint_path
 
     num_gpus = job['num_gpus']
     num_cpus = job.pop('num_cpus')
@@ -72,7 +70,11 @@ def _run_batch(job,
         else:
             flagstring += ' --%s %s' % (key, value)
 
-    jobname = "tem.%s" % job['name']
+    if job['mode'] == 'train':
+        jobname = "temtr.%s" % job['name']
+    elif job['mode'] == 'inference':
+        jobname = "teminf.%s" % job['name']
+        
     jobcommand = "python main.py %s" % flagstring
     print(jobcommand)
 
@@ -115,9 +117,11 @@ def fb_run_batch(job, counter, email, code_directory):
     slurm_logs = os.path.join(directory, 'bsn', 'slurm_logs')
     slurm_scripts = os.path.join(directory, 'bsn', 'slurm_scripts')
     comet_dir = os.path.join(directory, 'bsn', 'comet')
-    checkpoint_path = os.path.join(directory, 'bsn', 'checkpoint')
-    if not os.path.exists(checkpoint_path):
-        os.makedirs(checkpoint_path)
+    if 'checkpoint_path' not in job:
+        checkpoint_path = os.path.join(directory, 'bsn', 'checkpoint')
+        job['checkpoint_path'] = checkpoint_path
+        if not os.path.exists(checkpoint_path):
+            os.makedirs(checkpoint_path)
         
     _run_batch(job,
                counter,
@@ -127,5 +131,4 @@ def fb_run_batch(job, counter, email, code_directory):
                directory,
                email,
                code_directory,
-               checkpoint_path,
                local_comet_dir=comet_dir)

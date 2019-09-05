@@ -40,9 +40,9 @@ def parse_opt():
     # TEM Training settings
     parser.add_argument('--tem_training_lr', type=float, default=0.001)
     parser.add_argument('--tem_weight_decay', type=float, default=0.0001)
-    parser.add_argument('--tem_epoch', type=int, default=20)
+    parser.add_argument('--tem_epoch', type=int, default=30) # NOTE: was 20
     parser.add_argument('--tem_step_size', type=int, default=7)
-    parser.add_argument('--tem_step_gamma', type=float, default=0.1)
+    parser.add_argument('--tem_step_gamma', type=float, default=0.1) # 0.1
     parser.add_argument('--tem_batch_size', type=int, default=16)
     parser.add_argument('--tem_match_thres', type=float, default=0.5)
     parser.add_argument('--tem_compute_loss_interval', type=float, default=100)    
@@ -79,6 +79,7 @@ def parse_opt():
     parser.add_argument('--bsp_boundary_ratio', type=float, default=0.2)
     parser.add_argument('--pgm_proposals_dir', type=str, default=None, help='used to save the pgm proposals.')
     parser.add_argument('--pgm_subset', type=str, default='full', help='can be full, train, or overfit.')
+    parser.add_argument('--pgm_score_threshold', type=float, default=0.5)    
     
     # Post processing
     parser.add_argument('--post_process_top_K', type=int, default=100)

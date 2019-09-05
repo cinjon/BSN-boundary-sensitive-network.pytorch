@@ -16,7 +16,7 @@ def load_json(file):
 
 
 class GymnasticsSampler(data.WeightedRandomSampler):
-    def __init__(self, video_dict, frame_list, skip_videoframes):
+    def __init__(self, video_dict, frame_list):
         """
         Args:
           video_dict: A dict of key to video_info.
@@ -57,12 +57,13 @@ class GymnasticsSampler(data.WeightedRandomSampler):
 
 class VideoDataSet(data.Dataset):
 
-    def __init__(self, opt, subset="train", img_loading_func=None):
+    def __init__(self, opt, subset="train", img_loading_func=None, overlap_windows=False):
         self.temporal_scale = opt["temporal_scale"]
         self.temporal_gap = 1. / self.temporal_scale
         self.subset = subset
         self.mode = opt["mode"]
         self.img_loading_func = img_loading_func
+        self.overlap_windows = overlap_windows
 
         # feature path is where the features are stored.
         # If we are using a representation_module, then this shoudl
@@ -104,7 +105,12 @@ class VideoDataSet(data.Dataset):
             self.frame_list = []
             for k, v in sorted(self.video_dict.items()):
                 num_frames = v['feature_frame'] - skip
-                video_frames = [(k, i) for i in range(0, num_frames, skip)]
+                if self.overlap_windows:
+                    # In this scenario, we take overlapping windows. Used for training.
+                    video_frames = [(k, i) for i in range(0, num_frames, skip)]
+                else:
+                    # In this scenario, windows do not overlap. Used for testing.
+                    video_frames = [(k, i) for i in range(0, num_frames, self.skip_videoframes)]                    
                 print('Video Dict: %s / total frames %d, frames after skipping %d' %  (k, num_frames, len(video_frames)))
                 self.frame_list.extend(video_frames)
 
@@ -134,11 +140,9 @@ class VideoDataSet(data.Dataset):
             return index, video_data, anchor_xmin, anchor_xmax
 
     def _get_base_data(self, index, start=None, end=None):
-        # If temporal_scale is 100, then this is 0, 1/100, 2/100, ..., 99/100
         anchor_xmin = [
             self.temporal_gap * i for i in range(self.temporal_scale)
         ]
-        # And this is temporal_scale is 100, then this is 1/100, 2/100, ..., 99/100, 100/100.
         anchor_xmax = [
             self.temporal_gap * i for i in range(1, self.temporal_scale + 1)
         ]
