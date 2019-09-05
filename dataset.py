@@ -282,6 +282,7 @@ class ProposalDataSet(data.Dataset):
     def __init__(self, opt, subset="train"):
 
         self.subset = subset
+        self.opt = opt
         self.mode = opt["mode"]
         if self.mode == "train":
             self.top_K = opt["pem_top_K"]
@@ -289,8 +290,13 @@ class ProposalDataSet(data.Dataset):
             self.top_K = opt["pem_top_K_inference"]
         self.video_info_path = opt["video_info"]
         self.video_anno_path = opt["video_anno"]
-
         self._getDatasetDict()
+
+    def _exists(self, video_name):
+        pgm_proposals_path = os.path.join(self.opt['pgm_proposals_dir'], '%s.proposals.csv' % video_name)
+        pgm_features_path = os.path.join(self.opt['pgm_features_dir'], '%s.features.npy' % video_name)
+        # print(pgm_proposals_path, pgm_features_path)
+        return os.path.exists(pgm_proposals_path) and os.path.exists(pgm_features_path)
         
     def _getDatasetDict(self):
         anno_df = pd.read_csv(self.video_info_path)
@@ -304,25 +310,77 @@ class ProposalDataSet(data.Dataset):
                 self.video_dict[video_name] = video_info
             if self.subset in video_subset:
                 self.video_dict[video_name] = video_info
-        self.video_list = self.video_dict.keys()
+        self.video_list = sorted(self.video_dict.keys())
+        print('Bef Len vidlist: ', self.video_list)
+        self.video_list = [k for k in self.video_list if self._exists(k)]
+        print('Aft Len vidlist: ', self.video_list)        
+
+        if self.opt['pem_top_threshold']:
+            print('Doing top threshold...')
+            self.features = {}
+            self.proposals = {}
+            self.indices = []
+            for video_name in self.video_list:
+                pgm_proposals_path = os.path.join(self.opt['pgm_proposals_dir'], '%s.proposals.csv' % video_name)
+                pgm_features_path = os.path.join(self.opt['pgm_features_dir'], '%s.features.npy' % video_name)
+
+                print(pgm_features_path)
+                pdf = pd.read_csv(pgm_proposals_path)
+                pdf = pdf.sort_values(by="score", ascending=False)
+                pre_count = len(pdf)
+                count = len(pdf[pdf.score > self.opt['pem_top_threshold']])
+                video_feature = np.load(pgm_features_path)
+                video_feature = video_feature[pdf[:count].index]
+                pdf = pdf[:count]
+                print(video_name, pre_count, len(pdf), video_feature.shape)
+                print(pdf[:5])
+                print('\n')
+                
+                self.proposals[video_name] = pdf
+                self.features[video_name] = video_feature
+                self.indices.extend([(video_name, i) for i in range(len(pdf))])
+            print('Num indices: ', len(self.indices))
 
     def __len__(self):
-        return len(self.video_list)
+        if self.opt['pem_top_threshold'] > 0:
+            return len(self.indices)
+        else:
+            return len(self.video_list)
 
     def __getitem__(self, index):
-        video_name = self.video_list[index]
-        pdf = pd.read_csv("./output/PGM_proposals/" + video_name + ".csv")
-        pdf = pdf[:self.top_K]
-        video_feature = np.load("./output/PGM_feature/" + video_name + ".npy")
-        video_feature = video_feature[:self.top_K, :]
-        video_feature = torch.Tensor(video_feature)
-
-        if self.mode == "train":
-            video_match_iou = torch.Tensor(pdf.match_iou.values[:])
-            return video_feature, video_match_iou
+        if self.opt['pem_top_threshold']:
+            video_name, video_index = self.indices[index]
+            video_feature = self.features[video_name][video_index]
+            video_feature = torch.Tensor(video_feature)
+            match_iou = self.proposals[video_name].match_iou.values[video_index:video_index+1]
+            video_match_iou = torch.Tensor(match_iou)
+            if self.mode == 'train':
+                return video_feature, video_match_iou
         else:
-            video_xmin = pdf.xmin.values[:]
-            video_xmax = pdf.xmax.values[:]
-            video_xmin_score = pdf.xmin_score.values[:]
-            video_xmax_score = pdf.xmax_score.values[:]
-            return video_feature, video_xmin, video_xmax, video_xmin_score, video_xmax_score
+            video_name = self.video_list[index]
+            pgm_proposals_path = os.path.join(self.opt['pgm_proposals_dir'], '%s.proposals.csv' % video_name)
+            pgm_features_path = os.path.join(self.opt['pgm_features_dir'], '%s.features.npy' % video_name)
+        
+            pdf = pd.read_csv(pgm_proposals_path)
+            # I added in this:
+            # ***
+            pdf = pdf.sort_values(by="score", ascending=False)
+            # ***
+            pdf = pdf[:self.top_K]
+            
+            video_feature = np.load(pgm_features_path)
+            video_feature = video_feature[:self.top_K, :]
+            video_feature = torch.Tensor(video_feature)
+
+            if self.mode == "train":
+                video_match_iou = torch.Tensor(pdf.match_iou.values[:])
+                print('from getitiem')
+                print(video_feature.shape)
+                print(video_match_iou.shape)
+                return video_feature, video_match_iou
+            else:
+                video_xmin = pdf.xmin.values[:]
+                video_xmax = pdf.xmax.values[:]
+                video_xmin_score = pdf.xmin_score.values[:]
+                video_xmax_score = pdf.xmax_score.values[:]
+                return video_feature, video_xmin, video_xmax, video_xmin_score, video_xmax_score

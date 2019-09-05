@@ -87,10 +87,11 @@ def _run_batch(job,
         f.write("#SBATCH --job-name=%s\n" % jobname)
         f.write("#SBATCH --mail-type=END,FAIL\n")
         f.write("#SBATCH --mail-user=%s\n" % email)
-        f.write("#SBATCH --gres=ntasks-per-node=1\n")
         f.write("#SBATCH --cpus-per-task=%d\n" % num_cpus)
         f.write("#SBATCH --time=%d:%d:00\n" % (hours, minutes))
-        f.write("#SBATCH --gres=gpu:%d\n" % num_gpus)
+        if num_gpus > 0:
+            f.write("#SBATCH --gres=gpu:%d\n" % num_gpus)
+            f.write("#SBATCH --gres=ntasks-per-node=1\n")
         f.write("#SBATCH --mem=%dG\n" % memory_per_node)
         f.write("#SBATCH --nodes=1\n")
 
@@ -100,7 +101,7 @@ def _run_batch(job,
                 os.path.join(slurm_logs, jobname + ".err"))
 
         f.write("module purge" + "\n")
-        module_load(f)
+        module_load(f, num_gpus)
         f.write("source activate onoff\n")
         f.write("SRCDIR=%s\n" % code_directory)
         f.write("cd ${SRCDIR}\n")
@@ -112,8 +113,9 @@ def _run_batch(job,
 
 def fb_run_batch(job, counter, email, code_directory):
 
-    def module_load(f):
-        f.write("module load cuda/10.0\n")
+    def module_load(f, num_gpus):
+        if num_gpus > 0:
+            f.write("module load cuda/10.0\n")
 
     directory = '/checkpoint/cinjon/spaceofmotion'
     slurm_logs = os.path.join(directory, 'bsn', 'slurm_logs')

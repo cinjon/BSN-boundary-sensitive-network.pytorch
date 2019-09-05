@@ -28,7 +28,8 @@ def get_lr(optimizer):
 def compute_metrics(sums, loss, count):
     values = {k: loss[k].cpu().detach().numpy()
               for k in sums if k != 'entries'}
-    values['entries'] = loss['entries']
+    if 'entries' in loss:
+        values['entries'] = loss['entries']
     new_sums = {k: v + sums[k] for k, v in values.items()}
     avg = {k: v / count for k, v in new_sums.items()}
     return new_sums, avg
@@ -89,10 +90,7 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
     print("TEM avg: %s." % s)
     if comet_exp:
         with comet_exp.train():
-            comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
-                    
-    if comet_exp:
-        with comet_exp.train():
+            comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)                    
             comet_exp.log_epoch_end(epoch)
                                 
     return global_step + 1
@@ -144,45 +142,93 @@ def test_TEM(data_loader, model, epoch, global_step, comet_exp, opt):
         torch.save(state, save_path)
 
 
-def train_PEM(data_loader, model, optimizer, epoch, writer, opt):
+def train_PEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt):
     model.train()
-    epoch_iou_loss = 0
 
+    count = 1
+    keys = ['iou_loss']
+    epoch_sums = {k: 0 for k in keys}
+
+    start = time.time()
     for n_iter, (input_data, label_iou) in enumerate(data_loader):
+        if time.time() - opt['start_time'] > opt['time']*3600 - 10 and comet_exp is not None:
+            comet_exp.end()
+            sys.exit(-1)
+
         PEM_output = model(input_data)
-        iou_loss = PEM_loss_function(PEM_output, label_iou, model, opt)
+        loss = PEM_loss_function(PEM_output, label_iou, opt)
+        iou_loss = loss['iou_loss']
         optimizer.zero_grad()
         iou_loss.backward()
         optimizer.step()
-        epoch_iou_loss += iou_loss.cpu().detach().numpy()
+        global_step += 1
+        
+        if n_iter % opt['pem_compute_loss_interval'] == 0:
+            epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
+            count += 1
+            steps_per_second = 0
+            if n_iter > 10:
+                steps_per_second = (n_iter+1) / (time.time() - start)
+                epoch_avg['steps_per_second'] = steps_per_second
+            epoch_avg['current_lr'] = get_lr(optimizer)
+            print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
+            s = ", ".join(['%s --> %.4f' % (key, epoch_avg[key]) for key in epoch_avg])
+            print("PEM avg so far this epoch: %s." % s)
+            if comet_exp:
+                with comet_exp.train():
+                    comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
 
-    writer.add_scalars('data/iou_loss',
-                       {'train': epoch_iou_loss / (n_iter + 1)}, epoch)
+    print('Count: ', count)
+    epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
+    steps_per_second = (n_iter+1) / (time.time() - start)
+    epoch_avg['steps_per_second'] = steps_per_second
+    print('\n***End of Epoch %d***\nS/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
+    s = ", ".join(['%s --> %.3f' % (key, epoch_avg[key]) for key in epoch_avg])
+    print("PEM avg: %s." % s)
+    if comet_exp:
+        with comet_exp.train():
+            comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
+            comet_exp.log_epoch_end(epoch)
+                                
+    return global_step + 1
 
-    print("PEM training loss(epoch %d): iou - %.04f" % (epoch, epoch_iou_loss /
-                                                        (n_iter + 1)))
 
-
-def test_PEM(data_loader, model, epoch, writer, opt):
+def test_PEM(data_loader, model, epoch, global_step, comet_exp, opt):
     model.eval()
-    epoch_iou_loss = 0
-
+    keys = ['iou_loss']
+    epoch_sums = {k: 0 for k in keys}
+    
     for n_iter, (input_data, label_iou) in enumerate(data_loader):
+        if time.time() - opt['start_time'] > opt['time']*3600 - 10 and comet_exp is not None:
+            comet_exp.end()
+            sys.exit(-1)
+            
         PEM_output = model(input_data)
-        iou_loss = PEM_loss_function(PEM_output, label_iou, model, opt)
-        epoch_iou_loss += iou_loss.cpu().detach().numpy()
+        loss = PEM_loss_function(PEM_output, label_iou, opt)
+        for k in keys:
+            epoch_sums[k] += loss[k].cpu().detach().numpy()
+            
+    epoch_values = {k : v / (n_iter + 1) for k, v in epoch_sums.items()}
+    if comet_exp:
+        with comet_exp.test():
+            comet_exp.log_metrics(epoch_values, step=global_step, epoch=epoch)
 
-    writer.add_scalars('data/iou_loss', {'test': epoch_iou_loss / (n_iter + 1)},
-                       epoch)
+    s = ", ".join(['%s --> %.04f' % (k, epoch_values[k]) for k in keys])
+    print("PEM avg test on epoch %d: %s." % (epoch, s))
+    state = {'epoch': epoch, 'global_step': global_step, 'state_dict': model.state_dict()}
 
-    print("PEM testing  loss(epoch %d): iou - %.04f" % (epoch, epoch_iou_loss /
-                                                        (n_iter + 1)))
-
-    state = {'epoch': epoch+1, 'state_dict': model.state_dict()}
-    torch.save(state, opt["checkpoint_path"] + "/pem_checkpoint.pth.tar")
-    if epoch_iou_loss < model.module.pem_best_loss:
-        model.module.pem_best_loss = np.mean(epoch_iou_loss)
-        torch.save(state, opt["checkpoint_path"] + "/pem_best.pth.tar")
+    save_dir = os.path.join(opt["checkpoint_path"], '%d.%s' % (opt['counter'], opt['name']))
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir, exist_ok=True)
+        
+    save_path = os.path.join(save_dir, 'tem_checkpoint.%d.pth' % epoch)
+    torch.save(state, save_path)
+    
+    iou_loss = epoch_values['iou_loss']
+    if iou_loss < model.module.pem_best_loss:
+        model.module.pem_best_loss = iou_loss
+        save_path = os.path.join(save_dir, 'tem_best.pth')
+        torch.save(state, save_path)
 
 
 def BSN_Train_TEM(opt):
@@ -263,11 +309,15 @@ def BSN_Train_PEM(opt):
                            lr=opt["pem_training_lr"],
                            weight_decay=opt["pem_weight_decay"])
 
+    print('Total params: %.2fM' %
+          (sum(p.numel() for p in model.parameters()) / 1000000.0))
+    
     def collate_fn(batch):
         batch_data = torch.cat([x[0] for x in batch])
         batch_iou = torch.cat([x[1] for x in batch])
         return batch_data, batch_iou
 
+    global_step = 0
     train_loader = torch.utils.data.DataLoader(
         ProposalDataSet(opt, subset="train"),
         batch_size=model.module.batch_size,
@@ -275,27 +325,49 @@ def BSN_Train_PEM(opt):
         num_workers=opt['data_workers'],
         pin_memory=True,
         drop_last=True,
-        collate_fn=collate_fn)
+        collate_fn=collate_fn if opt['pem_top_threshold'] == 0 else None)
 
-    test_loader = torch.utils.data.DataLoader(
-        ProposalDataSet(opt, subset="test"),
-        batch_size=model.module.batch_size,
-        shuffle=True,
-        num_workers=opt['data_workers'],
-        pin_memory=True,
-        drop_last=True,
-        collate_fn=collate_fn)
+    # test_loader = torch.utils.data.DataLoader(
+    #     ProposalDataSet(opt, subset="test"),
+    #     batch_size=model.module.batch_size,
+    #     shuffle=True,
+    #     num_workers=opt['data_workers'],
+    #     pin_memory=True,
+    #     drop_last=True,
+    #     collate_fn=collate_fn)
 
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                                 step_size=opt["pem_step_size"],
                                                 gamma=opt["pem_step_gamma"])
 
-    for epoch in range(opt["pem_epoch"]):
-        scheduler.step()
-        train_PEM(train_loader, model, optimizer, epoch, writer, opt)
-        test_PEM(test_loader, model, epoch, writer, opt)
+    if opt['log_to_comet']:
+        comet_exp = CometExperiment(api_key="hIXq6lDzWzz24zgKv7RYz6blo",
+                                    project_name="bsnpem",
+                                    workspace="cinjon",
+                                    auto_metric_logging=True,
+                                    auto_output_logging=None,
+                                    auto_param_logging=False)
+    elif opt['local_comet_dir']:
+        comet_exp = OfflineExperiment(
+            api_key="hIXq6lDzWzz24zgKv7RYz6blo",
+            project_name="bsnpem",
+            workspace="cinjon",
+            auto_metric_logging=True,
+            auto_output_logging=None,
+            auto_param_logging=False,
+            offline_directory=opt['local_comet_dir'])
+    else:
+        comet_exp = None
 
-    writer.close()
+    if comet_exp:
+        comet_exp.log_parameters(opt)
+        comet_exp.set_name(opt['name'])    
+
+    for epoch in range(opt["pem_epoch"]):
+        with torch.autograd.detect_anomaly():
+            global_step = train_PEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
+            scheduler.step()
+        # test_PEM(test_loader, model, epoch, global_step, comet_exp, opt)
 
 
 def BSN_inference_TEM(opt):
@@ -439,7 +511,11 @@ def main(opt):
     opt['tem_batch_size'] *= num_gpus
     opt['tem_training_lr'] *= num_gpus
     print(opt)
-            
+
+    path = os.path.join(opt['checkpoint_path'], '%d.%s' % (opt['counter'], opt['name']), '%s.opts.json' % opt['module'])
+    with open(path, 'w') as f:
+        json.dump(opt, f)
+    
     if opt["module"] == "TEM":
         if opt["mode"] == "train":
             print("TEM training start")
@@ -489,7 +565,4 @@ if __name__ == '__main__':
     opt = opts.parse_opt()
     opt = vars(opt)
     opt['start_time'] = time.time()
-    if os.path.exists(opt.get('checkpoint_path')):
-        with open(opt["checkpoint_path"] + "/opts.json", "w") as f:
-            json.dump(opt, f)
     main(opt)

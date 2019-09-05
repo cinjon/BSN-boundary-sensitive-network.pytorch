@@ -49,14 +49,14 @@ def generate_proposals_repr(opt, video_list, video_dict):
 
     tem_results_dir = opt['tem_results_dir']
     proposals_dir = os.path.join(opt['pgm_proposals_dir'], tem_results_dir.split('/')[-1])
-    if os.path.exists(proposals_dir):
-        shutil.rmtree(proposals_dir)
-    if not os.path.exists(proposals_dir):
-        os.makedirs(proposals_dir)
         
     for video_name in video_list:
         print('Starting %s' % video_name)
         results_path = os.path.join(tem_results_dir, '%s.csv' % video_name)
+        if not os.path.exists(results_path):
+            print('Skipping %s because %s is not a path.' % (video_name, results_path))
+            continue
+        
         tdf = pd.read_csv(results_path)
         start_scores = tdf.start.values[:]
         end_scores = tdf.end.values[:]
@@ -308,8 +308,6 @@ def generate_features_repr(opt, video_list, video_dict):
     model = tem_results_dir.split('/')[-1]
     proposals_dir = os.path.join(opt['pgm_proposals_dir'], model)
     features_dir = os.path.join(opt['pgm_features_dir'], model)
-    if not os.path.exists(features_dir):
-        os.makedirs(features_dir)
 
     start_time = time.time()
     for video_name in video_list:
@@ -471,9 +469,16 @@ def generate_features(opt, video_list, video_dict):
 
 
 def PGM_proposal_generation(opt):
-    pgm_directory = opt["pgm_proposals_dir"]
-    if not os.path.exists(pgm_directory):
-        os.makedirs(pgm_directory, exist_ok=True)
+    pgm_dir = opt["pgm_proposals_dir"]
+    if not os.path.exists(pgm_dir):
+        os.makedirs(pgm_dir, exist_ok=True)
+
+    tem_results_dir = opt['tem_results_dir']
+    pgm_dir = os.path.join(pgm_dir, tem_results_dir.split('/')[-1])
+    if os.path.exists(pgm_dir):
+        shutil.rmtree(pgm_dir)
+    if not os.path.exists(pgm_dir):
+        os.makedirs(pgm_dir)
         
     video_dict = load_json(opt["video_anno"])
     video_list = sorted(video_dict.keys())  #[:199]
@@ -514,10 +519,11 @@ def PGM_proposal_generation(opt):
 
 
 def PGM_feature_generation(opt):
-    pgm_directory = opt["pgm_features_dir"]
-    if not os.path.exists(pgm_directory):
-        os.makedirs(pgm_directory, exist_ok=True)
-
+    model = opt['tem_results_dir'].split('/')[-1]
+    features_dir = os.path.join(opt['pgm_features_dir'], model)
+    if not os.path.exists(features_dir):
+        os.makedirs(features_dir)
+    
     video_dict = getDatasetDict(opt)
     video_list = sorted(video_dict.keys())
     func = generate_features_repr if opt['do_representation'] else generate_features

@@ -64,7 +64,7 @@ def TEM_loss_function(y_action, y_start, y_end, TEM_output, opt):
     return loss_dict
 
 
-def PEM_loss_function(anchors_iou, match_iou, model, opt):
+def PEM_loss_function(anchors_iou, match_iou, opt):
     match_iou = match_iou.cuda()
     anchors_iou = anchors_iou.view(-1)
     u_hmask = (match_iou > opt["pem_high_iou_thres"]).float()
@@ -76,13 +76,13 @@ def PEM_loss_function(anchors_iou, match_iou, model, opt):
     num_m = torch.sum(u_mmask)
     num_l = torch.sum(u_lmask)
 
-    r_m = model.module.u_ratio_m * num_h / (num_m)
+    r_m = opt['pem_u_ratio_m'] * num_h / (num_m)
     r_m = torch.min(r_m, torch.Tensor([1.0]).cuda())[0]
     u_smmask = torch.Tensor(np.random.rand(u_hmask.size()[0])).cuda()
     u_smmask = u_smmask * u_mmask
     u_smmask = (u_smmask > (1. - r_m)).float()
 
-    r_l = model.module.u_ratio_l * num_h / (num_l)
+    r_l = opt['pem_u_ratio_l'] * num_h / (num_l)
     r_l = torch.min(r_l, torch.Tensor([1.0]).cuda())[0]
     u_slmask = torch.Tensor(np.random.rand(u_hmask.size()[0])).cuda()
     u_slmask = u_slmask * u_lmask
@@ -90,6 +90,6 @@ def PEM_loss_function(anchors_iou, match_iou, model, opt):
 
     iou_weights = u_hmask + u_smmask + u_slmask
     iou_loss = F.smooth_l1_loss(anchors_iou, match_iou)
-    iou_loss = torch.sum(iou_loss * iou_weights) / torch.sum(iou_weights)
+    iou_loss = (1e-6 + torch.sum(iou_loss * iou_weights)) / (1e-6 + torch.sum(iou_weights))
 
-    return iou_loss
+    return {'iou_loss': iou_loss}

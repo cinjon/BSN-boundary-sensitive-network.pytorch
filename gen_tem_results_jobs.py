@@ -8,7 +8,7 @@ import re
 import sys
 
 from run_on_cluster import fb_run_batch
-from cinjon_jobs import run
+from tem_jobs import run
 
 email = 'cinjon@nyu.edu'
 code_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch'
@@ -37,5 +37,5 @@ for ckpt_subdir in os.listdir(ckpt_directory):
     if not os.path.exists(_job['checkpoint_path']):
         os.makedirs(_job['checkpoint_path'])
     
-    print(counter, _job)
+    print(counter, sorted(_job.items())
     fb_run_batch(_job, counter, email, code_directory)

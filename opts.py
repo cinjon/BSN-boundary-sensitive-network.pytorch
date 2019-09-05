@@ -28,6 +28,8 @@ def parse_opt():
     # PEM Dataset settings
     parser.add_argument('--pem_top_K', type=int, default=500)
     parser.add_argument('--pem_top_K_inference', type=int, default=1000)
+    parser.add_argument('--pem_top_threshold', type=float, default=0,
+                        help='instead of using pem_top_K, can do this to threshold the score and then use pem_top_K to randomly choose proposals from above this score.')    
 
     # TEM model settings
     parser.add_argument('--tem_feat_dim', type=int, default=400)
@@ -45,7 +47,7 @@ def parse_opt():
     parser.add_argument('--tem_step_gamma', type=float, default=0.1) # 0.1
     parser.add_argument('--tem_batch_size', type=int, default=16)
     parser.add_argument('--tem_match_thres', type=float, default=0.5)
-    parser.add_argument('--tem_compute_loss_interval', type=float, default=100)    
+    parser.add_argument('--tem_compute_loss_interval', type=float, default=50)    
     parser.add_argument('--tem_train_subset', type=str, default='train', help='can be train or overfit.')
     parser.add_argument('--tem_results_dir', type=str, default=None, help='used for inference to generate the results that PGM_proposals uses.')
     parser.add_argument('--tem_results_subset', type=str, default='full', help='can be full, train, or overfit.')
@@ -61,6 +63,7 @@ def parse_opt():
     parser.add_argument('--pem_u_ratio_l', type=float, default=2)
     parser.add_argument('--pem_high_iou_thres', type=float, default=0.6)
     parser.add_argument('--pem_low_iou_thres', type=float, default=2.2)
+    parser.add_argument('--pem_compute_loss_interval', type=float, default=25)        
 
     # PEM inference settings
     parser.add_argument('--pem_inference_subset',
@@ -70,11 +73,13 @@ def parse_opt():
     # PGM settings
     parser.add_argument('--pgm_threshold', type=float, default=0.5)
     parser.add_argument('--pgm_thread', type=int, default=8)
+    # The original ahd it s.t. num_sample_start + end + action should equal to pem_feat_dim.
+    # However, using the Thumos one, it appears to be num_sample_start*2 + num_sample_end*2 + action beacuse the action stuff is included in the first two as well...
     parser.add_argument('--num_sample_start', type=int, default=8)
     parser.add_argument('--num_sample_end', type=int, default=8)
     parser.add_argument(
         '--num_sample_action', type=int, default=16
-    )  # num_sample_start + end + action should equal to pem_feat_dim
+    )  
     parser.add_argument('--num_sample_interpld', type=int, default=3)
     parser.add_argument('--bsp_boundary_ratio', type=float, default=0.2)
     parser.add_argument('--pgm_proposals_dir', type=str, default=None, help='used to save the pgm proposals.')

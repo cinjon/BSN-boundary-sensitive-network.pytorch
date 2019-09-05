@@ -134,19 +134,6 @@ class PEM(torch.nn.Module):
                                    out_features=self.output_dim,
                                    bias=True)
 
-        self.reset_params()
-
-    @staticmethod
-    def weight_init(m):
-        if isinstance(m, nn.Conv2d):
-            init.xavier_uniform_(m.weight)
-            #init.xavier_normal(m.weight)
-            init.constant(m.bias, 0)
-
-    def reset_params(self):
-        for i, m in enumerate(self.modules()):
-            self.weight_init(m)
-
     def forward(self, x):
         x = F.relu(0.1 * self.fc1(x))
         x = torch.sigmoid(0.1 * self.fc2(x))
