@@ -454,15 +454,13 @@ def main(opt):
             print("Wrong mode. TEM has two modes: train and inference")
 
     elif opt["module"] == "PGM":
-        print("PGM: start generate proposals")
-        PGM_proposal_generation(opt)
-        print("PGM: finish generate proposals")
+        # print("PGM: start generate proposals")
+        # PGM_proposal_generation(opt)
+        # print("PGM: finish generate proposals")
 
-        # if not os.path.exists("output/PGM_feature"):
-        #     os.makedirs("output/PGM_feature")
-        # print("PGM: start generate BSP feature")
-        # PGM_feature_generation(opt)
-        # print("PGM: finish generate BSP feature")
+        print("PGM: start generate BSP feature")
+        PGM_feature_generation(opt)
+        print("PGM: finish generate BSP feature")
 
     elif opt["module"] == "PEM":
         if opt["mode"] == "train":
@@ -491,8 +489,8 @@ def main(opt):
 if __name__ == '__main__':
     opt = opts.parse_opt()
     opt = vars(opt)
-    opt_file = open(opt["checkpoint_path"] + "/opts.json", "w")
     opt['start_time'] = time.time()
-    json.dump(opt, opt_file)
-    opt_file.close()
+    if os.path.exists(opt.get('checkpoint_path')):
+        with open(opt["checkpoint_path"] + "/opts.json", "w") as f:
+            json.dump(opt, f)
     main(opt)

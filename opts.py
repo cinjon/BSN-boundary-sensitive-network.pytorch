@@ -78,6 +78,7 @@ def parse_opt():
     parser.add_argument('--num_sample_interpld', type=int, default=3)
     parser.add_argument('--bsp_boundary_ratio', type=float, default=0.2)
     parser.add_argument('--pgm_proposals_dir', type=str, default=None, help='used to save the pgm proposals.')
+    parser.add_argument('--pgm_features_dir', type=str, default=None, help='used to save the pgm features.')
     parser.add_argument('--pgm_subset', type=str, default='full', help='can be full, train, or overfit.')
     parser.add_argument('--pgm_score_threshold', type=float, default=0.5)    
     

@@ -1,6 +1,6 @@
 """
 Example run:
-python main.py --module PGM --do_representation --num_videoframes 25 --tem_results_dir /checkpoint/cinjon/spaceofmotion/bsn/teminf/101.2019.8.30-00101.1 --pgm_proposals_dir /checkpoint/cinjon/spaceofmotion/bsn/pgmprops --video_anno /private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations/anno_fps12.on.json --video_info /private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations/video_info_new.csv --checkpoint_path /checkpoint/cinjon/spaceofmotion/bsn/teminf/101.2019.8.30-00101.1 --pgm_score_threshold 0.25
+python main.py --module PGM --do_representation --num_videoframes 25 --tem_results_dir /checkpoint/cinjon/spaceofmotion/bsn/teminf/101.2019.8.30-00101.1 --pgm_proposals_dir /checkpoint/cinjon/spaceofmotion/bsn/pgmprops --video_anno /private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations/anno_fps12.on.json --video_info /private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations/video_info_new.csv --pgm_score_threshold 0.25
 """
 
 # -*- coding: utf-8 -*-
@@ -46,7 +46,6 @@ def ioa_with_anchors(anchors_min, anchors_max, box_min, box_max):
 
 def generate_proposals_repr(opt, video_list, video_dict):
     start_time = time.time()
-    peak_thres = opt["pgm_threshold"]
 
     tem_results_dir = opt['tem_results_dir']
     proposals_dir = os.path.join(opt['pgm_proposals_dir'], tem_results_dir.split('/')[-1])
@@ -285,21 +284,19 @@ def getDatasetDict(opt):
     json_data = load_json(opt["video_anno"])
     database = json_data
     video_dict = {}
+    keys = ['duration_frame', 'duration_second', 'feature_frame', 'annotations', 'fps']
     for i in range(len(df)):
         video_name = df.video.values[i]
         video_info = database[video_name]
-        video_new_info = {}
-        video_new_info['duration_frame'] = video_info['duration_frame']
-        video_new_info['duration_second'] = video_info['duration_second']
-        video_new_info["feature_frame"] = video_info['feature_frame']
-        video_new_info['annotations'] = video_info['annotations']
+        video_new_info = {k: video_info[k] for k in keys}
         video_new_info['subset'] = df.subset.values[i]
         video_dict[video_name] = video_new_info
     return video_dict
 
 
 def bookend_zeros(arr, num):
-    return np.concatenate(np.zeros([num]), arr, np.zeros([num]))
+    return np.concatenate([np.zeros([num]), arr, np.zeros([num])])
+
     
 def generate_features_repr(opt, video_list, video_dict):
     num_sample_start = opt["num_sample_start"]
@@ -307,26 +304,46 @@ def generate_features_repr(opt, video_list, video_dict):
     num_sample_action = opt["num_sample_action"]
     num_sample_interpld = opt["num_sample_interpld"]
 
-    tem_results_dir = opt['tem_results_dir']    
-    proposals_dir = os.path.join(opt['pgm_proposals_dir'], tem_results_dir.split('/')[-1])
-    
+    tem_results_dir = opt['tem_results_dir']
+    model = tem_results_dir.split('/')[-1]
+    proposals_dir = os.path.join(opt['pgm_proposals_dir'], model)
+    features_dir = os.path.join(opt['pgm_features_dir'], model)
+    if not os.path.exists(features_dir):
+        os.makedirs(features_dir)
+
+    start_time = time.time()
     for video_name in video_list:
+        s0 = time.time()
         tem_path = os.path.join(tem_results_dir, video_name + ".csv")
+        if not os.path.exists(tem_path):
+            print("NOT generating features for %s because features don't exist." % video_name)
+            continue        
         adf = pd.read_csv(tem_path)
+        
+        proposals_path = os.path.join(proposals_dir, '%s.proposals.csv' % video_name)
+        if not os.path.exists(proposals_path):
+            print("NOT generating features for %s because proposals don't exist." % video_name)
+            continue        
+        pdf = pd.read_csv(proposals_path)
+
+        print('Doing %s with paths %s and %s' % (video_name, tem_path, proposals_path))
+        
         score_action = bookend_zeros(adf.action.values[:], 20)
         score_end = bookend_zeros(adf.end.values[:], 20)
         score_start = bookend_zeros(adf.start.values[:], 20)
         snippets = [5*i - 87 for i in range(20)] + list(adf.frames.values[:]) + [5*i + 5 + adf.frames.values[:][-1] for i in range(20)]
-        f_action = scipy.interpoalte.inter1d(snippets, score_action, axis=0)
-        f_start = scipy.interpoalte.inter1d(snippets, score_start, axis=0)
-        f_end = scipy.interpoalte.inter1d(snippets, score_end, axis=0)
-        
-        path = os.path.join(proposals_dir, '%s.proposals.csv' % video_name)
-        pdf = pd.read_csv(path)
-        
+        print('Computing the interp1ds')
+        f_action = interp1d(snippets, score_action, axis=0)
+        f_start = interp1d(snippets, score_start, axis=0)
+        f_end = interp1d(snippets, score_end, axis=0)
+        print('Done ciomputing interp1ds')
         
         feature_bsp = []
+        s1 = time.time()
         for idx in range(len(pdf)):
+            if idx % 1000 == 0 and idx > 0:
+                print('At %d of %d. S/S: %.4f' % (idx, len(pdf), idx / (time.time() - s1)))
+                
             xmin = pdf.xmin.values[idx]
             xmax = pdf.xmax.values[idx]
             xlen = xmax - xmin
@@ -358,7 +375,12 @@ def generate_features_repr(opt, video_list, video_dict):
                 [tmp_y_new_action, tmp_y_new_start, tmp_y_new_end]))
             
         feature_bsp = np.array(feature_bsp)
-        np.save(os.path.join(proposals_dir, "%s.features.npy" % video_name), feature_bsp)
+        path = os.path.join(
+            features_dir, "%s.features.npy" % video_name)
+        print("Size of feature_bsp: ", feature_bsp.shape, len(adf), len(pdf), video_name)
+        np.save(path, feature_bsp)
+        print('Time from start to finish for video with adf len %d and pdf len %d was %.4f.', (len(adf), len(pdf), time.time() - s0))
+    print('Total time was ', time.time() - start_time)
 
 
 def generate_features(opt, video_list, video_dict):
@@ -456,9 +478,8 @@ def PGM_proposal_generation(opt):
     video_dict = load_json(opt["video_anno"])
     video_list = video_dict.keys()  #[:199]
     # NOTE: change this back.
-    video_list = [k for k in video_list if '12.4.18-Part-1' in k]
-    video_list = sorted(video_list, key=lambda k: ('12.4.18' in k, k))
-    print(video_list)
+    # video_list = [k for k in video_list if '12.4.18-Part-1' in k]
+    # video_list = sorted(video_list, key=lambda k: ('12.4.18' in k, k))
     num_videos = len(video_list)
     num_threads = min(num_videos, opt['pgm_thread'])
     num_videos_per_thread = int(num_videos / num_threads)
@@ -493,12 +514,19 @@ def PGM_proposal_generation(opt):
 
 
 def PGM_feature_generation(opt):
+    pgm_directory = opt["pgm_features_dir"]
+    if not os.path.exists(pgm_directory):
+        os.makedirs(pgm_directory, exist_ok=True)
+
     video_dict = getDatasetDict(opt)
-    video_list = video_dict.keys()
+    video_list = sorted(video_dict.keys())
     func = generate_features_repr if opt['do_representation'] else generate_features
     num_videos = len(video_list)
-    num_videos_per_thread = num_videos / opt["pgm_thread"]
+    num_threads = min(num_videos, opt['pgm_thread'])
+    num_videos_per_thread = int(num_videos / opt["pgm_thread"])
     processes = []
+    print('\n***\n')
+    print(opt['pgm_thread'], num_videos_per_thread, video_list)
     for tid in range(opt["pgm_thread"] - 1):
         tmp_video_list = video_list[tid * num_videos_per_thread:(tid + 1) *
                                     num_videos_per_thread]
