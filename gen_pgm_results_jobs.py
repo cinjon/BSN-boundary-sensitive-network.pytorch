@@ -38,10 +38,11 @@ for tem_results_subdir in os.listdir(tem_results_dir):
         
     _job['pgm_score_threshold'] = 0.25
     _job['module'] = 'PGM'
+    _job['mode'] = 'pgm'
 
-    for key in ['mode', 'checkpoint_path']:
+    for key in ['checkpoint_path']:
         if key in _job:
             del _job[key]
             
     print(counter, _job)
-    # fb_run_batch(_job, counter, email, code_directory)
+    fb_run_batch(_job, counter, email, code_directory)

@@ -29,6 +29,8 @@ for ckpt_subdir in os.listdir(ckpt_directory):
     _job['time'] = 4 # what time should this be?
     _job['tem_results_dir'] = tem_results_dir
     _job['tem_results_subset'] = _job['tem_train_subset']
+    if _job['tem_results_subset'] == 'train':
+        _job['tem_results_subset'] = 'full'
     _job['mode'] = 'inference'
     
     _job['checkpoint_path'] = os.path.join(ckpt_directory, ckpt_subdir)

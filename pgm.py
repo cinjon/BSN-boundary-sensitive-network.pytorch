@@ -476,7 +476,7 @@ def PGM_proposal_generation(opt):
         os.makedirs(pgm_directory, exist_ok=True)
         
     video_dict = load_json(opt["video_anno"])
-    video_list = video_dict.keys()  #[:199]
+    video_list = sorted(video_dict.keys())  #[:199]
     # NOTE: change this back.
     # video_list = [k for k in video_list if '12.4.18-Part-1' in k]
     # video_list = sorted(video_list, key=lambda k: ('12.4.18' in k, k))

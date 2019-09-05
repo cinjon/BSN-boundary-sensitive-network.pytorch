@@ -74,6 +74,8 @@ def _run_batch(job,
         jobname = "temtr.%s" % job['name']
     elif job['mode'] == 'inference':
         jobname = "teminf.%s" % job['name']
+    elif job['mode'] == 'pgm':
+        jobname = "pgm.%s" % job['name']        
         
     jobcommand = "python main.py %s" % flagstring
     print(jobcommand)

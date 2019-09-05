@@ -258,8 +258,7 @@ def BSN_Train_TEM(opt):
 
 def BSN_Train_PEM(opt):
     model = PEM(opt)
-    model = torch.nn.DataParallel(model, device_ids=[0]).cuda()
-
+    model = torch.nn.DataParallel(model).cuda()
     optimizer = optim.Adam(model.parameters(),
                            lr=opt["pem_training_lr"],
                            weight_decay=opt["pem_weight_decay"])
@@ -454,9 +453,9 @@ def main(opt):
             print("Wrong mode. TEM has two modes: train and inference")
 
     elif opt["module"] == "PGM":
-        # print("PGM: start generate proposals")
-        # PGM_proposal_generation(opt)
-        # print("PGM: finish generate proposals")
+        print("PGM: start generate proposals")
+        PGM_proposal_generation(opt)
+        print("PGM: finish generate proposals")
 
         print("PGM: start generate BSP feature")
         PGM_feature_generation(opt)
