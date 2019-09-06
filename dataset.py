@@ -277,6 +277,55 @@ class VideoDataSet(data.Dataset):
         return len(self.video_list)
 
 
+class ProposalSampler(data.WeightedRandomSampler):
+    def __init__(self, proposals, frame_list, max_zero_weight=0.25):
+        """
+        We are jsut trying to even out the 0 samples from everything else. We don't want those to dominate.
+
+        Args:
+          proposals: A dict of video_name key to pandas data frame.
+          indices: A list of (key, index into that key's data frame). 
+          This is what the Dataset is using and what we need to give sample weights for.
+        """
+        video_zero_indices = {k: set() for k in proposals}
+        video_total_counts = {k: 0 for k in proposals}
+        for video_name, pdf in proposals.items():
+            video_total_counts[video_name] = len(pdf)
+            video_zero_indices[video_name] = set([
+                num for num, iou in enumerate(pdf.match_iou.values[:]) \
+                if iou == 0
+            ])
+            
+        weights = []
+        curr_vid = None
+        switched_counts = {k: 0 for k in proposals}
+        for num, (video_name, pdf_num) in enumerate(frame_list):
+            count_zeros = len(video_zero_indices[video_name]) * 1.
+            count_total = video_total_counts[video_name]
+            percent = count_zeros / count_total
+            if curr_vid is None or video_name != curr_vid:
+                print('switching to %s with percent %.04f' % (video_name, percent))
+                curr_vid = video_name
+                
+            if percent < max_zero_weight:
+                # We don't care if there aren't many zeros.
+                continue
+
+            # Otherwise, we roughly want there to be 10% zeros at most.
+            # Say the original count of zeros and nonzeros is x, y.
+            # We want the final distro to be .1 / .9, so weight the
+            # zeros by w = .1/x and the nonzeros by .9/y. This yields
+            # a prob of .1/x for each zero, which then yields .1 total.
+            if pdf_num in video_zero_indices[video_name]:
+                # Weight zero classes by (1 - percent)
+                weights.append(max_zero_weight / count_zeros)
+            else:
+                # Weight non-zero classes by percent.
+                weights.append((1 - max_zero_weight) / (count_total - count_zeros))
+
+        super(ProposalSampler, self).__init__(weights, len(weights), replacement=True)
+
+        
 class ProposalDataSet(data.Dataset):
 
     def __init__(self, opt, subset="train"):
@@ -295,6 +344,8 @@ class ProposalDataSet(data.Dataset):
     def _exists(self, video_name):
         pgm_proposals_path = os.path.join(self.opt['pgm_proposals_dir'], '%s.proposals.csv' % video_name)
         pgm_features_path = os.path.join(self.opt['pgm_features_dir'], '%s.features.npy' % video_name)
+        print(pgm_proposals_path)
+        print(pgm_features_path)
         return os.path.exists(pgm_proposals_path) and os.path.exists(pgm_features_path)
         
     def _getDatasetDict(self):
@@ -311,48 +362,53 @@ class ProposalDataSet(data.Dataset):
                 self.video_dict[video_name] = video_info
         self.video_list = sorted(self.video_dict.keys())
         self.video_list = [k for k in self.video_list if self._exists(k)]
+        print('\n***\n')
+        print(self.subset)
+        print(self.video_list)
 
-        if self.opt['pem_top_threshold']:
-            print('Doing top threshold of %.4f...' % self.opt['ptem_top_threshold'])
+        if self.opt['pem_do_index']:
             self.features = {}
             self.proposals = {}
             self.indices = []
             for video_name in self.video_list:
                 pgm_proposals_path = os.path.join(self.opt['pgm_proposals_dir'], '%s.proposals.csv' % video_name)
                 pgm_features_path = os.path.join(self.opt['pgm_features_dir'], '%s.features.npy' % video_name)
-
-                print(pgm_features_path)
                 pdf = pd.read_csv(pgm_proposals_path)
                 pdf = pdf.sort_values(by="score", ascending=False)
-                pre_count = len(pdf)
-                count = len(pdf[pdf.score > self.opt['pem_top_threshold']])
                 video_feature = np.load(pgm_features_path)
-                video_feature = video_feature[pdf[:count].index]
-                pdf = pdf[:count]
+                video_feature = video_feature[pdf[:self.top_K].index]
+                pre_count = len(pdf)
+                pdf = pdf[:self.top_K]
                 print(video_name, pre_count, len(pdf), video_feature.shape)
-                print(pdf[:5])
-                print('\n')
-                
+                print('Num zeros in match_iou: ', len(pdf[pdf.match_iou == 0]))
+                print('')
                 self.proposals[video_name] = pdf
                 self.features[video_name] = video_feature
                 self.indices.extend([(video_name, i) for i in range(len(pdf))])
             print('Num indices: ', len(self.indices))
 
     def __len__(self):
-        if self.opt['pem_top_threshold'] > 0:
+        if self.opt['pem_do_index'] > 0:
             return len(self.indices)
         else:
             return len(self.video_list)
 
     def __getitem__(self, index):
-        if self.opt['pem_top_threshold']:
+        if self.opt['pem_do_index']:
             video_name, video_index = self.indices[index]
             video_feature = self.features[video_name][video_index]
             video_feature = torch.Tensor(video_feature)
-            match_iou = self.proposals[video_name].match_iou.values[video_index:video_index+1]
+            pdf = self.proposals[video_name]
+            match_iou = pdf.match_iou.values[video_index:video_index+1]
             video_match_iou = torch.Tensor(match_iou)
             if self.mode == 'train':
                 return video_feature, video_match_iou
+            else:
+                video_xmin = pdf.xmin.values[:]
+                video_xmax = pdf.xmax.values[:]
+                video_xmin_score = pdf.xmin_score.values[:]
+                video_xmax_score = pdf.xmax_score.values[:]
+                return video_feature, 
         else:
             video_name = self.video_list[index]
             pgm_proposals_path = os.path.join(self.opt['pgm_proposals_dir'], '%s.proposals.csv' % video_name)

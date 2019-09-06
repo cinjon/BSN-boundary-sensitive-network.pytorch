@@ -70,12 +70,22 @@ def _run_batch(job,
         else:
             flagstring += ' --%s %s' % (key, value)
 
-    if job['mode'] == 'train':
-        jobname = "temtr.%s" % job['name']
-    elif job['mode'] == 'inference':
-        jobname = "teminf.%s" % job['name']
-    elif job['mode'] == 'pgm':
-        jobname = "pgm.%s" % job['name']        
+    if job['module'] == 'TEM':
+        if job['mode'] == 'train':
+            jobname = "temtr.%s" % job['name']
+        elif job['mode'] == 'inference':
+            jobname = "teminf.%s" % job['name']
+        else:
+            raise
+    elif job['module'] == 'PGM':
+        jobname = "pgm.%s" % job['name']
+    elif job['module'] == 'PEM':
+        if job['mode'] == 'train':
+            jobname = "pemtr.%s" % job['name']
+        else:
+            raise
+    else:
+        raise        
         
     jobcommand = "python main.py %s" % flagstring
     print(jobcommand)

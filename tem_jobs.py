@@ -1,7 +1,7 @@
 """Run the jobs in this file.
 
 Example commands:
-python cinjon_jobs.fb cims batch: Run the func jobs on fb using sbatch.
+python tem_jobs.py
 """
 import os
 import sys

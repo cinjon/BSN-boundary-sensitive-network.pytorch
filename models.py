@@ -122,8 +122,6 @@ class PEM(torch.nn.Module):
         self.feat_dim = opt["pem_feat_dim"]
         self.batch_size = opt["pem_batch_size"]
         self.hidden_dim = opt["pem_hidden_dim"]
-        self.u_ratio_m = opt["pem_u_ratio_m"]
-        self.u_ratio_l = opt["pem_u_ratio_l"]
         self.output_dim = 1
         self.pem_best_loss = 1000000
 

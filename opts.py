@@ -26,10 +26,12 @@ def parse_opt():
                         default="./data/activitynet_feature_cuhk/")
 
     # PEM Dataset settings
-    parser.add_argument('--pem_top_K', type=int, default=500)
-    parser.add_argument('--pem_top_K_inference', type=int, default=1000)
+    parser.add_argument('--pem_top_K', type=int, default=2500) # 500
+    parser.add_argument('--pem_top_K_inference', type=int, default=2500) # 1000
     parser.add_argument('--pem_top_threshold', type=float, default=0,
                         help='instead of using pem_top_K, can do this to threshold the score and then use pem_top_K to randomly choose proposals from above this score.')    
+    parser.add_argument('--pem_do_index', action='store_true')
+    parser.add_argument('--pem_max_zero_weight', type=float, default=0.1)
 
     # TEM model settings
     parser.add_argument('--tem_feat_dim', type=int, default=400)
@@ -66,9 +68,10 @@ def parse_opt():
     parser.add_argument('--pem_compute_loss_interval', type=float, default=25)        
 
     # PEM inference settings
+    parser.add_argument('--pem_inference_results_dir', type=str, default=None, help='where to save the pem_inference results.')
     parser.add_argument('--pem_inference_subset',
                         type=str,
-                        default="validation")
+                        default="full")
 
     # PGM settings
     parser.add_argument('--pgm_threshold', type=float, default=0.5)

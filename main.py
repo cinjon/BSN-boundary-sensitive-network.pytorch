@@ -11,7 +11,7 @@ import torch.optim as optim
 import numpy as np
 from tensorboardX import SummaryWriter
 import opts
-from dataset import VideoDataSet, ProposalDataSet, GymnasticsSampler
+from dataset import VideoDataSet, ProposalDataSet, GymnasticsSampler, ProposalSampler
 from models import TEM, PEM, partial_load, get_img_loader
 from loss_function import TEM_loss_function, PEM_loss_function
 import pandas as pd
@@ -128,7 +128,7 @@ def test_TEM(data_loader, model, epoch, global_step, comet_exp, opt):
     s = ", ".join(['%s --> %.3f' % (k, epoch_values[k]) for k in keys])
     print("TEM avg test on epoch %d: %s." % (epoch, s))
     state = {'epoch': epoch, 'global_step': global_step, 'state_dict': model.state_dict()}
-    save_dir = os.path.join(opt["checkpoint_path"], '%d.%s' % (opt['counter'], opt['name']))
+    save_dir = os.path.join(opt["checkpoint_path"], opt['name'])
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
         
@@ -217,17 +217,17 @@ def test_PEM(data_loader, model, epoch, global_step, comet_exp, opt):
     print("PEM avg test on epoch %d: %s." % (epoch, s))
     state = {'epoch': epoch, 'global_step': global_step, 'state_dict': model.state_dict()}
 
-    save_dir = os.path.join(opt["checkpoint_path"], '%d.%s' % (opt['counter'], opt['name']))
+    save_dir = os.path.join(opt["checkpoint_path"], opt['name'])
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
         
-    save_path = os.path.join(save_dir, 'tem_checkpoint.%d.pth' % epoch)
+    save_path = os.path.join(save_dir, 'pem_checkpoint.%d.pth' % epoch)
     torch.save(state, save_path)
     
     iou_loss = epoch_values['iou_loss']
     if iou_loss < model.module.pem_best_loss:
         model.module.pem_best_loss = iou_loss
-        save_path = os.path.join(save_dir, 'tem_best.pth')
+        save_path = os.path.join(save_dir, 'pem_best.pth')
         torch.save(state, save_path)
 
 
@@ -317,24 +317,29 @@ def BSN_Train_PEM(opt):
         batch_iou = torch.cat([x[1] for x in batch])
         return batch_data, batch_iou
 
+
+    train_dataset = ProposalDataSet(opt, subset="train")
+    train_sampler = ProposalSampler(train_dataset.proposals, train_dataset.indices, max_zero_weight=opt['pem_max_zero_weight'])
+    
     global_step = 0
     train_loader = torch.utils.data.DataLoader(
-        ProposalDataSet(opt, subset="train"),
+        train_dataset,
+        batch_size=model.module.batch_size,
+        shuffle=False,
+        sampler=train_sampler,
+        num_workers=opt['data_workers'],
+        pin_memory=True,
+        drop_last=True,
+        collate_fn=collate_fn if not opt['pem_do_index'] else None)
+
+    test_loader = torch.utils.data.DataLoader(
+        ProposalDataSet(opt, subset="test"),
         batch_size=model.module.batch_size,
         shuffle=True,
         num_workers=opt['data_workers'],
         pin_memory=True,
-        drop_last=True,
-        collate_fn=collate_fn if opt['pem_top_threshold'] == 0 else None)
-
-    # test_loader = torch.utils.data.DataLoader(
-    #     ProposalDataSet(opt, subset="test"),
-    #     batch_size=model.module.batch_size,
-    #     shuffle=True,
-    #     num_workers=opt['data_workers'],
-    #     pin_memory=True,
-    #     drop_last=True,
-    #     collate_fn=collate_fn)
+        drop_last=False,
+        collate_fn=collate_fn if not opt['pem_do_index'] else None)
 
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                                 step_size=opt["pem_step_size"],
@@ -364,10 +369,9 @@ def BSN_Train_PEM(opt):
         comet_exp.set_name(opt['name'])    
 
     for epoch in range(opt["pem_epoch"]):
-        with torch.autograd.detect_anomaly():
-            global_step = train_PEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
-            scheduler.step()
-        # test_PEM(test_loader, model, epoch, global_step, comet_exp, opt)
+        global_step = train_PEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
+        scheduler.step()
+        test_PEM(test_loader, model, epoch, global_step, comet_exp, opt)
 
 
 def BSN_inference_TEM(opt):
@@ -469,9 +473,10 @@ def BSN_inference_PEM(opt):
         for k, v in list(checkpoint['state_dict'].items())
     }
     model.load_state_dict(base_dict)
-    model = torch.nn.DataParallel(model, device_ids=[0]).cuda()
+    model = torch.nn.DataParallel(model).cuda()
     model.eval()
 
+    save_dir = opt['pem_inference_results_dir']
     test_loader = torch.utils.data.DataLoader(
         ProposalDataSet(opt, subset=opt["pem_inference_subset"]),
         batch_size=model.module.batch_size,
@@ -480,6 +485,7 @@ def BSN_inference_PEM(opt):
         pin_memory=True,
         drop_last=False)
 
+    current_video = None
     for idx, (video_feature, video_xmin, video_xmax, video_xmin_score,
               video_xmax_score) in enumerate(test_loader):
         video_name = test_loader.dataset.video_list[idx]
@@ -496,7 +502,8 @@ def BSN_inference_PEM(opt):
         df["xmax_score"] = video_xmax_score
         df["iou_score"] = video_conf
 
-        df.to_csv("./output/PEM_results/" + video_name + ".csv", index=False)
+        df.to_csv(os.path.join(save_dir, video_name + ".csv"),
+                  index=False)
 
 
 def main(opt):
@@ -506,16 +513,24 @@ def main(opt):
     torch.backends.cudnn.benchmark = False
 
     num_gpus = opt['num_gpus']
-    opt['base_training_lr'] = opt['tem_training_lr']
-    opt['base_batch_size'] = opt['tem_batch_size']
-    opt['tem_batch_size'] *= num_gpus
-    opt['tem_training_lr'] *= num_gpus
+    if opt['module'] == 'TEM':
+        opt['base_training_lr'] = opt['tem_training_lr']
+        opt['base_batch_size'] = opt['tem_batch_size']
+        opt['tem_batch_size'] *= num_gpus
+        opt['tem_training_lr'] *= num_gpus
+    elif opt['module'] == 'PEM':
+        opt['base_training_lr'] = opt['pem_training_lr']
+        opt['base_batch_size'] = opt['pem_batch_size']
+        opt['pem_batch_size'] *= num_gpus
+        opt['pem_training_lr'] *= num_gpus
     print(opt)
 
     path = opt['checkpoint_path']
     if opt['module'] != 'TEM':
-        path = os.path.join(path, '%d.%s' % (opt['counter'], opt['name']))
-    path = os.path.join('%s.opts.json' % opt['module'])
+        path = os.path.join(path, opt['name'])
+    if not os.path.exists(path):
+        os.makedirs(path)
+    path = os.path.join(path, '%s.opts.json' % opt['module'])
     with open(path, 'w') as f:
         json.dump(opt, f)
     
@@ -530,7 +545,6 @@ def main(opt):
             print("TEM inference finished")
         else:
             print("Wrong mode. TEM has two modes: train and inference")
-
     elif opt["module"] == "PGM":
         print("PGM: start generate proposals")
         PGM_proposal_generation(opt)
@@ -539,15 +553,12 @@ def main(opt):
         print("PGM: start generate BSP feature")
         PGM_feature_generation(opt)
         print("PGM: finish generate BSP feature")
-
     elif opt["module"] == "PEM":
         if opt["mode"] == "train":
             print("PEM training start")
             BSN_Train_PEM(opt)
             print("PEM training finished")
         elif opt["mode"] == "inference":
-            if not os.path.exists("output/PEM_results"):
-                os.makedirs("output/PEM_results")
             print("PEM inference start")
             BSN_inference_PEM(opt)
             print("PEM inference finished")

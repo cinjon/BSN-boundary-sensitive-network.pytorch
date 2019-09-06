@@ -374,7 +374,7 @@ def generate_features_repr(opt, video_list, video_dict):
             features_dir, "%s.features.npy" % video_name)
         print("Size of feature_bsp: ", feature_bsp.shape, len(adf), len(pdf), video_name)
         np.save(path, feature_bsp)
-        print('Time from start to finish for video with adf len %d and pdf len %d was %.4f.', (len(adf), len(pdf), time.time() - s0))
+        print('Time from start to finish for video with adf len %d and pdf len %d was %.4f.' % (len(adf), len(pdf), time.time() - s0))
     print('Total time was ', time.time() - start_time)
 
 
@@ -479,11 +479,8 @@ def PGM_proposal_generation(opt):
     video_list = sorted(video_dict.keys())  #[:199]
     
     # NOTE: change this back.
-    video_list = [k for k in video_list if '12.18.18' in k or '12.5.18' in k]
+    # video_list = [k for k in video_list if '12.18.18' in k or '12.5.18' in k]
     print(video_list)
-    if len(video_list) > 2:
-        print('YO. wat?')
-        return
     
     num_videos = len(video_list)
     num_threads = min(num_videos, opt['pgm_thread'])
@@ -527,11 +524,8 @@ def PGM_feature_generation(opt):
     video_dict = getDatasetDict(opt)
     video_list = sorted(video_dict.keys())
     # NOTE: change this back.
-    video_list = [k for k in video_list if '12.18.18' in k or '12.5.18' in k]
+    # video_list = [k for k in video_list if '12.18.18' in k or '12.5.18' in k]
     print(video_list)
-    if len(video_list) > 2:
-        print('YO. wat?')
-        return
     
     func = generate_features_repr if opt['do_representation'] else generate_features
     num_videos = len(video_list)

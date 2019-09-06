@@ -1,7 +1,7 @@
 """Run the jobs in this file.
 
 Example commands:
-python pem_jobs.fb: Run the func jobs on fb using sbatch.
+python pem_jobs.py
 """
 import os
 import sys
@@ -13,199 +13,97 @@ code_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytor
 anno_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations'
 
 func = fb_run_batch
+num_gpus = 8
 
 
 def run(find_counter=None):
     counter = 0
-    job = {
-        'name': '2019.8.28.bsn',
-        'video_anno': os.path.join(anno_directory, 'anno_fps12.on.json'),
-        'video_info': os.path.join(anno_directory, 'video_info_new.csv'),
-        'do_representation': True,
-        'module': 'TEM',
-        'time': 16,
-        'tem_compute_loss_interval': 50
-    }
-    for tem_train_subset in ['overfit', 'train']:
-        for num_gpus in [8, 4]:
-            for lr in [1e-3, 3e-3, 1e-2]:
-                for nvf in [25]:
-                    for svf in [6, 8, 10]:
-                        for num_run in range(2):
-                            if num_gpus == 4 and num_run > 0:
-                                continue
-                    
-                            counter += 1
-                            _job = {k: v for k, v in job.items()}
-                            _job['num_gpus'] = num_gpus
-                            _job['tem_training_lr'] = lr
-                            _job['name'] = '%s-%05d.%d' % (_job['name'], counter, num_run)
-                            _job['num_cpus'] = num_gpus * 10
-                            _job['gb'] = 64 * num_gpus
-                            _job['num_videoframes'] = nvf
-                            _job['skip_videoframes'] = svf
-                            _job['tem_train_subset'] = tem_train_subset
-                            _job['time'] = 1.1 if tem_train_subset == 'overfit' else 4
-                            if find_counter == counter:
-                                return _job
-                            # func(_job, counter, email, code_directory)
-
 
     job = {
-        'name': '2019.8.29.bsn',
+        'name': '2019.09.05',
         'video_anno': os.path.join(anno_directory, 'anno_fps12.on.json'),
         'video_info': os.path.join(anno_directory, 'video_info_new.csv'),
-        'do_representation': True,
-        'module': 'TEM',
-        'tem_compute_loss_interval': 50
+        'module': 'PEM',
+        'mode': 'train',
+        'pem_compute_loss_interval': 100,
+        'pgm_proposals_dir': '/checkpoint/cinjon/spaceofmotion/bsn/pgmprops/101.2019.8.30-00101.1',
+        'pgm_features_dir': '/checkpoint/cinjon/spaceofmotion/bsn/pgmfeats/101.2019.8.30-00101.1',
+        'pem_epoch': 40,
     }
-    for tem_train_subset in ['overfit', 'train']:
-        for num_gpus in [8]:
-            for lr in [2e-3]:
-                for nvf in [25, 30]:
-                    for svf in [6, 8, 10]:
-                        counter += 1
-                        _job = {k: v for k, v in job.items()}
-                        _job['num_gpus'] = num_gpus
-                        _job['tem_training_lr'] = lr
-                        _job['name'] = '%s-%05d' % (_job['name'], counter)
-                        _job['num_cpus'] = num_gpus * 10
-                        _job['gb'] = 64 * num_gpus
-                        _job['num_videoframes'] = nvf
-                        _job['skip_videoframes'] = svf
-                        _job['tem_train_subset'] = tem_train_subset
-                        _job['time'] = 3 if tem_train_subset == 'overfit' else 8
-                        if find_counter == counter:
-                            return _job
-                        # func(_job, counter, email, code_directory)
-                        
-
-
-    job = {
-        'name': '2019.8.30',
-        'video_anno': os.path.join(anno_directory, 'anno_fps12.on.json'),
-        'video_info': os.path.join(anno_directory, 'video_info_new.csv'),
-        'do_representation': True,
-        'module': 'TEM',
-        'tem_compute_loss_interval': 50
-    }
-    for num_run in range(2):
-        for tem_train_subset in ['overfit', 'train']:
-            for num_gpus in [8]:
-                for lr in [2e-3, 1e-2]:
-                    for nvf in [25]:
-                        for svf in [5]:
-                            counter += 1
-                            if counter in [69, 70, 73, 74]:
-                                continue
-                            
-                            _job = {k: v for k, v in job.items()}
-                            _job['num_gpus'] = num_gpus
-                            _job['tem_training_lr'] = lr
-                            _job['name'] = '%s-%05d.%d' % (_job['name'], counter, num_run)
-                            _job['num_cpus'] = num_gpus * 10
-                            _job['gb'] = 64 * num_gpus
-                            _job['num_videoframes'] = nvf
-                            _job['skip_videoframes'] = svf
-                            _job['tem_train_subset'] = tem_train_subset
-                            _job['time'] = 2
-                            if find_counter == counter:
-                                return _job
-                            
-                            # if not find_counter:
-                            #     func(_job, counter, email, code_directory)
-
-
-    # Not sure what happened in teh above. The below is redoing but letting training be over many more frames.
-    # Pretty much changed training to do frames [0 + skip*nf, skip + skip*nf, 2*skip + skip*nf, ...]
-    # but enforce that testing is only on windows [0 + skip*nf, skip*nf + skip*nf, 2*skip*nf + skip*nf, ...],
-    # i.e. non-overlapping windows.
-    job = {
-        'name': '2019.8.30',
-        'video_anno': os.path.join(anno_directory, 'anno_fps12.on.json'),
-        'video_info': os.path.join(anno_directory, 'video_info_new.csv'),
-        'do_representation': True,
-        'module': 'TEM',
-        'tem_compute_loss_interval': 50,
-        'num_videoframes': 25,
-        'skip_videoframes': 5,
-    }
-    for num_run in range(2):
-        for tem_train_subset in ['overfit', 'train']:
-            for num_gpus in [8]:
-                for lr in [2e-3, 6e-3]:
-                    for tem_step_gamma in [0.1, 0.5]:
-                        for tem_step_size in [7, 10]:
-                            counter += 1                            
-                            _job = {k: v for k, v in job.items()}
-                            _job['num_gpus'] = num_gpus
-                            _job['tem_training_lr'] = lr
-                            _job['name'] = '%s-%05d.%d' % (_job['name'], counter, num_run)
-                            _job['num_cpus'] = num_gpus * 10
-                            _job['gb'] = 64 * num_gpus
-                            _job['tem_step_gamma'] = tem_step_gamma
-                            _job['tem_step_size'] = tem_step_size
-                            _job['tem_train_subset'] = tem_train_subset
-                            if tem_train_subset == 'overfit':
-                                time = 2
-                            elif tem_train_subset == 'train' and num_run == 0:
-                                time = 3
-                            else:
-                                time = 13
-                            _job['time'] = time
-                            
-                            if find_counter == counter:
-                                return _job
-                            
-                            # if not find_counter:
-                            #     func(_job, counter, email, code_directory)
-
-
-    job = {
-        'name': '2019.09.02',
-        'video_anno': os.path.join(anno_directory, 'anno_fps12.on.json'),
-        'video_info': os.path.join(anno_directory, 'video_info_new.csv'),
-        'do_representation': True,
-        'module': 'TEM',
-        'tem_compute_loss_interval': 50,
-        'num_videoframes': 25,
-        'skip_videoframes': 5,
-        'tem_step_size': 10,
-        'tem_step_gamma': 0.5
-    }
-    for num_run in range(2):
-        for tem_train_subset in ['overfit', 'train']:
-            for num_gpus in [8]:
-                for lr in [2e-3, 4e-3, 6e-3, 1e-2]:
-                    if tem_train_subset == 'overfit' and num_run > 0:
-                        continue
-                    if tem_train_subset == 'overfit' and lr < 6e-3:
-                        continue
-                    if tem_train_subset == 'train' and lr > 4e-3:
-                        continue
-                
-                    counter += 1                            
-                    _job = {k: v for k, v in job.items()}
-                    _job['num_gpus'] = num_gpus
-                    _job['tem_training_lr'] = lr
-                    _job['name'] = '%s-%05d.%d' % (_job['name'], counter, num_run)
-                    _job['num_cpus'] = num_gpus * 10
-                    _job['gb'] = 64 * num_gpus
-                    _job['tem_train_subset'] = tem_train_subset
-                    if tem_train_subset == 'overfit':
-                        time = 8
-                    elif num_run == 0:
-                        time = 8
-                    else:
-                        time = 18
-                    _job['time'] = time
-                    
-                    if find_counter == counter:
-                        return _job
-                    
-                    if not find_counter:
-                        func(_job, counter, email, code_directory)
+    for pem_batch_size in [1024, 2048]:
+        for pem_training_lr in [3e-3, 1e-2, 3e-2]:
+            for pem_weight_decay in [1e-5, 3e-4, 1e-4]:
+                for pem_step_gamma in [0.5, 0.75]:
+                    for pem_step_size in [5, 7, 10]:
+                        for pem_hidden_dim in [256, 1024]:
+                            for pem_top_threshold in [0.95, 0.9, 0.75]:
+                                counter += 1
                                 
+                                _job = {k: v for k, v in job.items()}
+                                _job['num_gpus'] = num_gpus
+                                _job['pem_training_lr'] = pem_training_lr
+                                _job['pem_batch_size'] = pem_batch_size
+                                _job['pem_step_size'] = pem_step_size
+                                _job['pem_step_gamma'] = pem_step_gamma
+                                _job['pem_weight_decay'] = pem_weight_decay
+                                _job['pem_hidden_dim'] = pem_hidden_dim
+                                _job['pem_top_threshold'] = pem_top_threshold
+                                _job['pem_feat_dim'] = 48
+                            
+                                _job['name'] = '%s-%05d' % (_job['name'], counter)
+                                _job['num_cpus'] = num_gpus * 10
+                                _job['gb'] = 64 * num_gpus
+                                _job['time'] = 4
 
+                                # if not find_counter:
+                                #     func(_job, counter, email, code_directory)
+
+
+    job = {
+        'name': '2019.09.06',
+        'video_anno': os.path.join(anno_directory, 'anno_fps12.on.json'),
+        'video_info': os.path.join(anno_directory, 'video_info_new.csv'),
+        'module': 'PEM',
+        'mode': 'train',
+        'pem_compute_loss_interval': 5,
+        'pgm_proposals_dir': '/checkpoint/cinjon/spaceofmotion/bsn/pgmprops/101.2019.8.30-00101.1',
+        'pgm_features_dir': '/checkpoint/cinjon/spaceofmotion/bsn/pgmfeats/101.2019.8.30-00101.1',
+        'pem_epoch': 60,
+        'pem_do_index': True,
+    }
+    for pem_batch_size in [64, 128, 512]:
+        for pem_training_lr in [3e-3, 1e-2, 3e-2]:
+            for pem_weight_decay in [1e-5, 1e-4]:
+                for pem_step_gamma in [0.5]:
+                    for pem_step_size in [10]:
+                        for pem_hidden_dim in [256, 1024, 2048]:
+                            for pem_max_zero_weight in [0.25, 0.1]:
+                                for pem_top_K in [1250, 2500]:
+                                    counter += 1
+                                
+                                    _job = {k: v for k, v in job.items()}
+                                    _job['num_gpus'] = num_gpus
+                                    _job['pem_training_lr'] = pem_training_lr
+                                    _job['pem_batch_size'] = pem_batch_size
+                                    _job['pem_step_size'] = pem_step_size
+                                    _job['pem_step_gamma'] = pem_step_gamma
+                                    _job['pem_weight_decay'] = pem_weight_decay
+                                    _job['pem_hidden_dim'] = pem_hidden_dim
+                                    _job['pem_max_zero_weight'] = pem_max_zero_weight
+                                    _job['pem_top_K'] = pem_top_K
+                                    _job['pem_top_K_inference'] = pem_top_K
+                                    _job['pem_feat_dim'] = 48
+                                    
+                                    _job['name'] = '%s-%05d' % (_job['name'], counter)
+                                    _job['num_cpus'] = num_gpus * 10
+                                    _job['gb'] = 64 * num_gpus
+                                    _job['time'] = 3
+                                    
+                                    if not find_counter:
+                                        func(_job, counter, email, code_directory)
+
+    
 if __name__ == '__main__':
     run()
+
+    
