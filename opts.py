@@ -9,6 +9,9 @@ def parse_opt():
     parser.add_argument('--checkpoint_path', type=str, default='./checkpoint')
 
     # Overall Dataset settings
+    parser.add_argument('--dataset', default='gymnastics', type=str,
+                        help='gymnsatics, thumosfeatures, thumosimages')
+        
     parser.add_argument(
         '--video_info',
         type=str,
@@ -21,9 +24,8 @@ def parse_opt():
     # TEM Dataset settings
     parser.add_argument('--temporal_scale', type=int, default=100)
     parser.add_argument('--boundary_ratio', type=float, default=0.1)
-    parser.add_argument('--feature_path',
-                        type=str,
-                        default="./data/activitynet_feature_cuhk/")
+    parser.add_argument('--feature_dirs', type=str, default=None,
+                        help='comma delineated list of paths to feature directories')
 
     # PEM Dataset settings
     parser.add_argument('--pem_top_K', type=int, default=2500) # 500

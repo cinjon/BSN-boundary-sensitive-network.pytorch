@@ -11,7 +11,7 @@ import torch.optim as optim
 import numpy as np
 from tensorboardX import SummaryWriter
 import opts
-from dataset import VideoDataSet, ProposalDataSet, GymnasticsSampler, ProposalSampler
+from dataset import ThumosFeatures, ProposalDataSet, GymnasticsSampler, ProposalSampler
 from models import TEM, PEM, partial_load, get_img_loader
 from loss_function import TEM_loss_function, PEM_loss_function
 import pandas as pd
@@ -70,6 +70,7 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         if n_iter % opt['tem_compute_loss_interval'] == 0:
             epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
             count += 1
+            steps_per_second = 0
             if n_iter > 10:
                 steps_per_second = (n_iter+1) / (time.time() - start)
                 epoch_avg['steps_per_second'] = steps_per_second
@@ -250,17 +251,25 @@ def BSN_Train_TEM(opt):
                            lr=opt["tem_training_lr"],
                            weight_decay=opt["tem_weight_decay"])
 
-    train_data_set = VideoDataSet(opt, subset=opt['tem_train_subset'], img_loading_func=img_loading_func, overlap_windows=True)
-    train_sampler = GymnasticsSampler(train_data_set.video_dict, train_data_set.frame_list)
+    if opt['dataset'] == 'gymnastics':
+        train_data_set = GymnasticsDataSet(opt, subset=opt['tem_train_subset'], img_loading_func=img_loading_func, overlap_windows=True)
+        train_sampler = GymnasticsSampler(train_data_set.video_dict, train_data_set.frame_list)
+        test_data_set = GymnasticsDataSet(opt, subset="test", img_loading_func=img_loading_func)
+    elif opt['dataset'] == 'thumosfeatures':
+        feature_dirs = opt['feature_dirs'].split(',')
+        train_data_set = ThumosFeatures(opt, subset='Val', feature_dirs=feature_dirs)
+        test_data_set = ThumosFeatures(opt, subset="Test", feature_dirs=feature_dirs)
+        train_sampler = None
+        
     train_loader = torch.utils.data.DataLoader(
         train_data_set,
         batch_size=model.module.batch_size,
+        shuffle=False if train_sampler else True,
         sampler=train_sampler,
         num_workers=opt['data_workers'],
         pin_memory=True,
         drop_last=True)
 
-    test_data_set = VideoDataSet(opt, subset="test", img_loading_func=img_loading_func)
     test_loader = torch.utils.data.DataLoader(
         test_data_set,
         batch_size=model.module.batch_size,
@@ -329,7 +338,7 @@ def BSN_Train_PEM(opt):
         sampler=train_sampler,
         num_workers=opt['data_workers'],
         pin_memory=True,
-        drop_last=True,
+        drop_last=False,
         collate_fn=collate_fn if not opt['pem_do_index'] else None)
 
     test_loader = torch.utils.data.DataLoader(
@@ -391,7 +400,11 @@ def BSN_inference_TEM(opt):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    dataset = VideoDataSet(opt, subset=opt['tem_results_subset'], img_loading_func=img_loading_func)
+    if opt['dataset'] == 'gymnastics':
+        dataset = GymnasticsDataSet(opt, subset=opt['tem_results_subset'], img_loading_func=img_loading_func)
+    elif opt['dataset'] == 'thumos':
+        dataset = ThumosDataSet(opt, subset=opt['tem_results_subset'])
+        
     test_loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=model.module.batch_size,
@@ -435,8 +448,6 @@ def BSN_inference_TEM(opt):
                     current_video = video
                     current_data = [[] for _ in range(len(columns))]
 
-                # NOTE: Here, we are extending but not saying where in the file it is.
-                #
                 start_frame = frame
                 end_frame = start_frame + opt['num_videoframes']*opt['skip_videoframes']
                 frames = range(start_frame, end_frame, opt['skip_videoframes'])
@@ -476,7 +487,10 @@ def BSN_inference_PEM(opt):
     model = torch.nn.DataParallel(model).cuda()
     model.eval()
 
-    save_dir = opt['pem_inference_results_dir']
+    save_dir = os.path.join(opt['pem_inference_results_dir'], opt['checkpoint_path'].split('/')[-1])
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+        
     test_loader = torch.utils.data.DataLoader(
         ProposalDataSet(opt, subset=opt["pem_inference_subset"]),
         batch_size=model.module.batch_size,
@@ -486,26 +500,44 @@ def BSN_inference_PEM(opt):
         drop_last=False)
 
     current_video = None
-    for idx, (video_feature, video_xmin, video_xmax, video_xmin_score,
+    columns = ["xmin", "xmax", "xmin_score", "xmax_score", "iou_score"]
+    for idx, (index_list, video_feature, video_xmin, video_xmax, video_xmin_score,
               video_xmax_score) in enumerate(test_loader):
-        video_name = test_loader.dataset.video_list[idx]
         video_conf = model(video_feature).view(-1).detach().cpu().numpy()
         video_xmin = video_xmin.view(-1).cpu().numpy()
         video_xmax = video_xmax.view(-1).cpu().numpy()
         video_xmin_score = video_xmin_score.view(-1).cpu().numpy()
         video_xmax_score = video_xmax_score.view(-1).cpu().numpy()
+        
+        index_list = index_list.numpy()
+        for batch_idx, full_idx in enumerate(index_list):
+            video, frame = test_loader.dataset.indices[full_idx]
+            if not current_video:
+                print('First video: ', video, full_idx)
+                current_video = video
+                current_data = [[] for _ in range(len(columns))]
+            elif video != current_video:
+                print('Changing from video %s to video %s: %d' % (current_video, video, full_idx))
+                video_result = np.stack(current_data, axis=1)
+                video_df = pd.DataFrame(video_result, columns=columns)
+                path = os.path.join(save_dir, '%s.csv' % current_video)
+                video_df.to_csv(path, index=False)
+                current_video = video
+                current_data = [[] for _ in range(len(columns))]
+                
+            current_data[0].append(video_xmin[batch_idx])
+            current_data[1].extend(video_xmax[batch_idx])
+            current_data[2].extend(video_xmin_score[batch_idx])
+            current_data[3].extend(video_xmax_score[batch_idx])
+            current_data[4].extend(video_conf[batch_idx])
 
-        df = pd.DataFrame()
-        df["xmin"] = video_xmin
-        df["xmax"] = video_xmax
-        df["xmin_score"] = video_xmin_score
-        df["xmax_score"] = video_xmax_score
-        df["iou_score"] = video_conf
+    if current_data[0]:
+        video_result = np.stack(current_data, axis=1)
+        video_df = pd.DataFrame(video_result, columns=columns)
+        path = os.path.join(save_dir, '%s.csv' % current_video)
+        video_df.to_csv(path, index=False)
 
-        df.to_csv(os.path.join(save_dir, video_name + ".csv"),
-                  index=False)
-
-
+        
 def main(opt):
     np.random.seed(opt['seed'])
     torch.manual_seed(opt['seed'])

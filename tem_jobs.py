@@ -1,7 +1,12 @@
 """Run the jobs in this file.
 
-Example commands:
+Example running all:
+
 python tem_jobs.py
+
+Example for running thumosfeatures:
+
+python main.py --module TEM --mode train --name dbg.thumos --counter 0 --data_workers 8 --seed 0 --num_gpus 2 --checkpoint_path /checkpoint/cinjon/spaceofmotion/bsn/checkpoint --video_info /private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations --feature_dirs /private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_feature_anet_200/flow/csv,/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_feature_anet_200/rgb/csv  --dataset thumosfeatures
 """
 import os
 import sys
@@ -204,8 +209,46 @@ def run(find_counter=None):
                         return _job
                     
                     if not find_counter:
-                        func(_job, counter, email, code_directory)
-                                
+                        pass
+                        # func(_job, counter, email, code_directory)
+
+
+    print("Counter: ", counter)
+    job = {
+        'name': '2019.09.06',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations',
+        'feature_dirs': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_feature_anet_200/flow/csv,/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_feature_anet_200/rgb/csv',
+        'dataset': 'thumosfeatures',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 10,
+        'tem_step_size': 10,
+        'tem_step_gamma': 0.5
+    }
+    for num_runs in range(2):
+        for num_gpus in [8]:
+            for lr in [1e-3, 3e-3, 1e-2]:
+                for tem_step_gamma in [0.1, 0.5]:
+                    for tem_step_size in [7, 10]:
+                        for tem_weight_decay in [1e-4, 3e-4, 1e-5]:
+                            counter += 1                            
+                            _job = {k: v for k, v in job.items()}
+                            _job['num_gpus'] = num_gpus
+                            _job['tem_training_lr'] = lr
+                            _job['tem_step_gamma'] = tem_step_gamma
+                            _job['tem_weight_decay'] = tem_weight_decay
+                            _job['tem_step_size'] = tem_step_size
+                            _job['name'] = '%s-%05d' % (_job['name'], counter)
+                            _job['num_cpus'] = num_gpus * 10
+                            _job['gb'] = 64 * num_gpus
+                            _job['time'] = 8 if num_runs == 0 else 16
+                            
+                            if find_counter == counter:
+                                return _job
+                    
+                            if not find_counter:
+                                func(_job, counter, email, code_directory)
+                        
 
 if __name__ == '__main__':
     run()

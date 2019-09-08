@@ -71,6 +71,7 @@ class TEM(torch.nn.Module):
             model, representation, _ = _get_module(opt['representation_module'])
             self.representation_model = model(opt)
             self.representation_mapping = representation(opt)
+        self.num_transformer_blocks = opt['num_transformer_blocks']
 
         self.reset_params()
 
@@ -99,15 +100,18 @@ class TEM(torch.nn.Module):
             self.weight_init(m)
 
     def forward(self, x):
-        # Input is [bs, num_videoframes, 3, 256, 448]
         if self.do_representation:
+            # Input is [bs, num_videoframes, 3, 256, 448]
             with torch.no_grad():
                 x = self.representation_model(x)
             x = self.representation_mapping(x)
-        adj_batch_size, num_features = x.shape
-        # This might be different because of data parallelism
-        batch_size = int(adj_batch_size / self.num_videoframes)
-        x = x.view(batch_size, num_features, self.num_videoframes)
+            adj_batch_size, num_features = x.shape
+            # This might be different because of data parallelism
+            batch_size = int(adj_batch_size / self.num_videoframes)
+            x = x.view(batch_size, num_features, self.num_videoframes)
+        else:
+            # From the Thumos features...
+            x = x.transpose(1, 2)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
         x = torch.sigmoid(0.01 * self.conv3(x))
