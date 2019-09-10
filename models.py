@@ -71,7 +71,7 @@ class TEM(torch.nn.Module):
             model, representation, _ = _get_module(opt['representation_module'])
             self.representation_model = model(opt)
             self.representation_mapping = representation(opt)
-        self.num_transformer_blocks = opt['num_transformer_blocks']
+        # self.num_transformer_blocks = opt['num_transformer_blocks']
 
         self.reset_params()
 

@@ -65,8 +65,8 @@ def parse_opt():
     parser.add_argument('--pem_batch_size', type=int, default=16)
     parser.add_argument('--pem_u_ratio_m', type=float, default=1)
     parser.add_argument('--pem_u_ratio_l', type=float, default=2)
-    parser.add_argument('--pem_high_iou_thres', type=float, default=0.6)
-    parser.add_argument('--pem_low_iou_thres', type=float, default=2.2)
+    parser.add_argument('--pem_high_iou_thres', type=float, default=0.7)
+    parser.add_argument('--pem_low_iou_thres', type=float, default=0.3)
     parser.add_argument('--pem_compute_loss_interval', type=float, default=25)        
 
     # PEM inference settings

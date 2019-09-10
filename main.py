@@ -11,7 +11,7 @@ import torch.optim as optim
 import numpy as np
 from tensorboardX import SummaryWriter
 import opts
-from dataset import ThumosFeatures, ProposalDataSet, GymnasticsSampler, ProposalSampler
+from dataset import ThumosFeatures, ThumosImages, ProposalDataSet, GymnasticsSampler, ProposalSampler
 from models import TEM, PEM, partial_load, get_img_loader
 from loss_function import TEM_loss_function, PEM_loss_function
 import pandas as pd
@@ -260,6 +260,17 @@ def BSN_Train_TEM(opt):
         train_data_set = ThumosFeatures(opt, subset='Val', feature_dirs=feature_dirs)
         test_data_set = ThumosFeatures(opt, subset="Test", feature_dirs=feature_dirs)
         train_sampler = None
+    elif opt['dataset'] == 'thumosimages':
+        img_loading_func = get_img_loader(opt)
+        train_data_set = ThumosImages(
+            opt, subset='Val', img_loading_func=img_loading_func,
+            image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_validation_tal.30'
+        )
+        test_data_set = ThumosImages(
+            opt, subset='Test', img_loading_func=img_loading_func,
+            image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_test_tal.30'
+        )
+        train_sampler = None
         
     train_loader = torch.utils.data.DataLoader(
         train_data_set,
@@ -385,7 +396,7 @@ def BSN_Train_PEM(opt):
 
 def BSN_inference_TEM(opt):
     model = TEM(opt)
-    img_loading_func = get_img_loader(opt)    
+    img_loading_func = get_img_loader(opt)
     checkpoint_path = os.path.join(opt['checkpoint_path'], 'tem_best.pth')
     checkpoint = torch.load(checkpoint_path)
     base_dict = {
