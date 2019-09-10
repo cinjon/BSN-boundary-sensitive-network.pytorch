@@ -24,158 +24,19 @@ def ioa_with_anchors(anchors_min, anchors_max, box_min, box_max):
     return scores
     
 
-class ThumosFeatures(data.Dataset):
-
-    def __init__(self, opt, subset=None, feature_dirs=[]):
+class Thumos(data.Dataset):
+    def __init__(self, opt, subset=None, feature_dirs=[], fps=30, image_dir=None, img_loading_func=None):
         self.subset = subset
         self.mode = opt["mode"]
         self.boundary_ratio = opt['boundary_ratio']
         self.temporal_gap = 5
+        self.window_size = 100
+        self.img_loading_func = img_loading_func
+
         # A list of paths to directories containing csvs of the
         # features per video. We will concatenate tehse togehter.
         self.feature_dirs = feature_dirs
-        # e.g. /data/thumos14_annotations/Test_Annotation.csv
-        self.video_info_path = os.path.join(opt["video_info"], '%s_Annotation.csv' % self.subset)
-        self._get_data()
 
-    def _get_data(self):
-        anno_df = pd.read_csv(self.video_info_path)
-        video_name_list = list(set(anno_df.video.values[:]))
-        list_data = []
-        list_anchor_xmins = []
-        list_anchor_xmaxs = []
-        list_gt_bbox = []
-        list_videos = []
-        list_starts = []        
-
-        for video_name in video_name_list:
-            anno_df_video = anno_df[anno_df.video == video_name]
-            gt_xmins = anno_df_video.startFrame.values[:]
-            gt_xmaxs = anno_df_video.endFrame.values[:]
-
-            feature_dfs = [
-                pd.read_csv(os.path.join(feature_dir, '%s.csv' % video_name))
-                for feature_dir in self.feature_dirs
-            ]
-            num_snippet = min([len(df) for df in feature_dfs])
-            frame_list = [3 + self.temporal_gap*i for i in range(num_snippet)]
-            df_data = np.concatenate([df.values[:num_snippet, :]
-                                      for df in feature_dfs],
-                                     axis=1)
-            df_snippet = frame_list
-            window_size = 100
-            stride = int(window_size / 2)
-            num_windows = int((num_snippet + stride - window_size) / stride)
-            windows_start = [i* stride for i in range(num_windows)]
-            if num_snippet < window_size:
-                windows_start = [0]
-                tmp_data = np.zeros((window_size - num_snippet, 400))
-                df_data = np.concatenate((df_data, tmp_data), axis=0)
-                df_snippet.extend([
-                    df_snippet[-1] + self.temporal_gap*(i+1)
-                    for i in range(window_size - num_snippet)
-                ])
-            elif num_snippet - windows_start[-1] - window_size > 20:
-                windows_start.append(num_snippet - window_size)
-
-            for start in windows_start:
-                tmp_data = df_data[start:start + window_size, :]
-                tmp_snippets = np.array(df_snippet[start:start + window_size])
-                tmp_anchor_xmins = tmp_snippets - 2.5
-                tmp_anchor_xmaxs = tmp_snippets + 2.5
-                tmp_gt_bbox = []
-                tmp_ioa_list = []
-                for idx in range(len(gt_xmins)):
-                    tmp_ioa = ioa_with_anchors(gt_xmins[idx], gt_xmaxs[idx],
-                                               tmp_anchor_xmins[0],
-                                               tmp_anchor_xmaxs[-1])
-                    tmp_ioa_list.append(tmp_ioa)
-                    if tmp_ioa > 0:
-                        tmp_gt_bbox.append([gt_xmins[idx], gt_xmaxs[idx]])
-
-                if len(tmp_gt_bbox) > 0 and max(tmp_ioa_list) > 0.9:
-                    list_gt_bbox.append(tmp_gt_bbox)
-                    list_anchor_xmins.append(tmp_anchor_xmins)
-                    list_anchor_xmaxs.append(tmp_anchor_xmaxs)
-                    list_data.append(np.array(tmp_data).astype(np.float32))
-                    list_videos.append(video_name)
-                    list_starts.append(start)
-
-        self.data = {
-            'gt_bbox': list_gt_bbox,
-            'anchor_xmins': list_anchor_xmins,
-            'anchor_xmaxs': list_anchor_xmaxs,
-            'video_data': list_data,
-            'video_names': list_videos,
-            'starts': list_starts,
-        }
-
-    def _get_train_label(self, gt_bbox, anchor_xmin, anchor_xmax):
-        gt_bbox = np.array(gt_bbox)
-        gt_xmins = gt_bbox[:, 0]
-        gt_xmaxs = gt_bbox[:, 1]
-        # same as gt_len but using the thumos code repo :/.
-        gt_duration = gt_xmaxs - gt_xmins
-        gt_duration_boundary = np.maximum(
-            self.temporal_gap, gt_duration * self.boundary_ratio)
-        gt_start_bboxs = np.stack(
-            (gt_xmins - gt_duration_boundary / 2, gt_xmins + gt_duration_boundary / 2),
-            axis=1
-        )
-        gt_end_bboxs = np.stack(
-            (gt_xmaxs - gt_duration_boundary / 2, gt_xmaxs + gt_duration_boundary / 2),
-            axis=1
-        )
-
-        match_score_action = [
-            np.max(
-                ioa_with_anchors(anchor_xmin[jdx], anchor_xmax[jdx],
-                                       gt_xmins, gt_xmaxs))
-            for jdx in range(len(anchor_xmin))
-        ]
-
-        match_score_start = [
-            np.max(
-                ioa_with_anchors(anchor_xmin[jdx], anchor_xmax[jdx],
-                                       gt_start_bboxs[:, 0], gt_start_bboxs[:, 1]))
-            for jdx in range(len(anchor_xmin))
-        ]
-
-        match_score_end = [
-            np.max(
-                ioa_with_anchors(anchor_xmin[jdx], anchor_xmax[jdx],
-                                       gt_end_bboxs[:, 0], gt_end_bboxs[:, 1]))
-            for jdx in range(len(anchor_xmin))
-        ]
-        
-        return torch.Tensor(match_score_action), torch.Tensor(match_score_start), torch.Tensor(match_score_end)
-        
-        
-    def __getitem__(self, index):
-        video_data = self.data['video_data'][index]
-        anchor_xmin = self.data['anchor_xmins'][index]
-        anchor_xmax = self.data['anchor_xmaxs'][index]
-        
-        if self.mode == "train":
-            gt_bbox = self.data['gt_bbox'][index]        
-            match_score_action, match_score_start, match_score_end = self._get_train_label(gt_bbox, anchor_xmin, anchor_xmax)
-            return video_data, match_score_action, match_score_start, match_score_end
-        else:
-            return index, video_data, anchor_xmin, anchor_xmax
-
-    def __len__(self):
-        return len(self.data['gt_bbox'])
-
-
-class ThumosImages(data.Dataset):
-
-    def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None):
-        self.subset = subset
-        self.mode = opt["mode"]
-        self.boundary_ratio = opt['boundary_ratio']
-        self.temporal_gap = 5
-        self.img_loading_func = img_loading_func
-        
         # A path to directories containing npys of the images in each video.
         # We assume that these are just rgb for now.
         self.image_dir = image_dir
@@ -188,46 +49,62 @@ class ThumosImages(data.Dataset):
     def _get_data(self):
         anno_df = pd.read_csv(self.video_info_path)
         video_name_list = list(set(anno_df.video.values[:]))
+        
+        if self.feature_dirs:
+            list_data = []
+            
         list_anchor_xmins = []
         list_anchor_xmaxs = []
         list_gt_bbox = []
         list_videos = []
         list_indices = []
-        list_starts = []        
-        window_size = 100
-
+        
+        window_size = self.window_size
+        temporal_gap = self.temporal_gap
+        start_snippet = int((temporal_gap + 1) / 2)
+        
         for video_name in video_name_list:
             anno_df_video = anno_df[anno_df.video == video_name]
             gt_xmins = anno_df_video.startFrame.values[:]
             gt_xmaxs = anno_df_video.endFrame.values[:]
 
-            image_dir = os.path.join(self.image_dir, video_name)
             # NOTE: num_snippet is the number of snippets in this video.
-            num_snippet = len(os.listdir(image_dir))
-            num_snippet = int((num_snippet - 3) / self.temporal_gap)
-            df_snippet = [3 + self.temporal_gap*i for i in range(num_snippet)]
-            
+            if self.image_dir:
+                image_dir = os.path.join(self.image_dir, video_name)
+                num_snippet = len(os.listdir(image_dir))
+                num_snippet = int((num_snippet - start_snippet) / temporal_gap)
+            elif self.feature_dirs:
+                feature_dfs = [
+                    pd.read_csv(os.path.join(feature_dir, '%s.csv' % video_name))
+                    for feature_dir in self.feature_dirs
+                ]
+                num_snippet = min([len(df) for df in feature_dfs])
+                df_data = np.concatenate([df.values[:num_snippet, :]
+                                          for df in feature_dfs],
+                                         axis=1)
+                
+            df_snippet = [start_snippet + temporal_gap*i for i in range(num_snippet)]
             stride = int(window_size / 2)
             num_windows = int((num_snippet + stride - window_size) / stride)
             windows_start = [i* stride for i in range(num_windows)]
             if num_snippet < window_size:
-                print('Hi yo --> ', video_name)
                 windows_start = [0]
                 df_snippet.extend([
-                    df_snippet[-1] + self.temporal_gap*(i+1)
+                    df_snippet[-1] + temporal_gap*(i+1)
                     for i in range(window_size - num_snippet)
                 ])
-            elif num_snippet - windows_start[-1] - window_size > 20:
+            elif num_snippet - windows_start[-1] - window_size > int(window_size / temporal_gap):
                 windows_start.append(num_snippet - window_size)
 
-            # print(windows_start)
             for start in windows_start:
-                if start + window_size > num_snippet:
-                    continue
-                
+                # if start + window_size > num_snippet:
+                #     continue
+
+                if self.feature_dirs:
+                    tmp_data = df_data[start:start + window_size, :]                    
                 tmp_snippets = np.array(df_snippet[start:start + window_size])
-                tmp_anchor_xmins = tmp_snippets - 2.5
-                tmp_anchor_xmaxs = tmp_snippets + 2.5
+                tmp_anchor_xmins = tmp_snippets - temporal_gap/2.
+                tmp_anchor_xmaxs = tmp_snippets + temporal_gap/2.
                 tmp_gt_bbox = []
                 tmp_ioa_list = []
                 for idx in range(len(gt_xmins)):
@@ -238,23 +115,37 @@ class ThumosImages(data.Dataset):
                     if tmp_ioa > 0:
                         tmp_gt_bbox.append([gt_xmins[idx], gt_xmaxs[idx]])
                         
-                #print tmp_ioa_list
                 if len(tmp_gt_bbox) > 0 and max(tmp_ioa_list) > 0.9:
                     list_gt_bbox.append(tmp_gt_bbox)
                     list_anchor_xmins.append(tmp_anchor_xmins)
                     list_anchor_xmaxs.append(tmp_anchor_xmaxs)
                     list_videos.append(video_name)
-                    list_starts.append(start)
                     list_indices.append(tmp_snippets)
+                    if self.feature_dirs:
+                        list_data.append(np.array(tmp_data).astype(np.float32))
 
+        print('Size of data: ', len(self.data['gt_bbox']))
         self.data = {
             'gt_bbox': list_gt_bbox,
             'anchor_xmins': list_anchor_xmins,
             'anchor_xmaxs': list_anchor_xmaxs,
             'video_names': list_videos,
-            'starts': list_starts,
             'indices': list_indices
         }
+        if self.feature_dirs:
+            self.data['video_data'] = list_data
+
+    def __getitem__(self, index):
+        anchor_xmin = self.data['anchor_xmins'][index]
+        anchor_xmax = self.data['anchor_xmaxs'][index]
+        video_data = self._get_video_data(self.data, index)
+        
+        if self.mode == "train":
+            gt_bbox = self.data['gt_bbox'][index]        
+            match_score_action, match_score_start, match_score_end = self._get_train_label(gt_bbox, anchor_xmin, anchor_xmax)
+            return video_data, match_score_action, match_score_start, match_score_end
+        else:
+            return index, video_data, anchor_xmin, anchor_xmax
 
     def _get_train_label(self, gt_bbox, anchor_xmin, anchor_xmax):
         gt_bbox = np.array(gt_bbox)
@@ -295,12 +186,31 @@ class ThumosImages(data.Dataset):
         ]
         
         return torch.Tensor(match_score_action), torch.Tensor(match_score_start), torch.Tensor(match_score_end)
+        
+    def __len__(self):
+        return len(self.data['gt_bbox'])
 
-    def _get_video_data(self, indices, video_name):
+    
+class ThumosFeatures(Thumos):
+
+    def __init__(self, opt, subset=None, feature_dirs=[]):
+        super(ThumosFeatures, self).__init__(opt, subset, feature_dirs, fps=None, image_dir=None, img_loading_func=None)
+
+    def _get_video_data(self, data, index):
+        return data['video_data'][index]
+    
+
+class ThumosImages(data.Dataset):
+
+    def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None):
+        super(ThumosImages, self).__init__(opt, subset, feature_dirs=None, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)        
+
+    def _get_video_data(self, data, index):
+        indices = data['indices'][index]
+        name = data['video_names'][index]
         path = os.path.join(self.image_dir, video_name)
         path = Path(path)
         paths = [path / ('%010.4f.npy' % (i / self.fps)) for i in indices]
-        print(list(zip(indices, paths)))
         imgs = [self.img_loading_func(p.absolute()) for p in paths]
         if type(imgs[0]) == np.array:
             video_data = np.array(imgs)
@@ -308,26 +218,7 @@ class ThumosImages(data.Dataset):
         elif type(imgs[0]) == torch.Tensor:
             video_data = torch.stack(imgs)
         return video_data
-        
-    def __getitem__(self, index):
-        print(index, len(self.data['anchor_xmins']))
-        anchor_xmin = self.data['anchor_xmins'][index]
-        anchor_xmax = self.data['anchor_xmaxs'][index]
-        indices = self.data['indices'][index]
-        name = self.data['video_names'][index]
-        video_data = self._get_video_data(indices, name)
-        
-        if self.mode == "train":
-            gt_bbox = self.data['gt_bbox'][index]        
-            match_score_action, match_score_start, match_score_end = self._get_train_label(gt_bbox, anchor_xmin, anchor_xmax)
-            return video_data, match_score_action, match_score_start, match_score_end
-        else:
-            return index, video_data, anchor_xmin, anchor_xmax
-
-    def __len__(self):
-        return len(self.data['gt_bbox'])
     
-
 
 class GymnasticsSampler(data.WeightedRandomSampler):
     def __init__(self, video_dict, frame_list):
@@ -400,6 +291,7 @@ class GymnasticsDataSet(data.Dataset):
             if self.subset in video_subset:
                 self.video_dict[video_name] = video_info
         self.video_list = self.video_dict.keys()
+        
         # Frame list is used when do_representation
         # NOTE: We restrict frame_list to have a fraction of the total number of frames
         # It is probably the case that we can expand the dataset a ton by not doing this
