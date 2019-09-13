@@ -246,9 +246,205 @@ def run(find_counter=None):
                             if find_counter == counter:
                                 return _job
                     
-                            if not find_counter:
-                                func(_job, counter, email, code_directory)
+                            # if not find_counter:
+                            #     func(_job, counter, email, code_directory)
+
+
+    print("Counter: ", counter) # 184.
+    # The jobs below are trying to dupliacte the TEM settings from the paper.
+    job = {
+        'name': '2019.09.10',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations',
+        'feature_dirs': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_feature_anet_200/flow/csv,/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_feature_anet_200/rgb/csv',
+        'dataset': 'thumosfeatures',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 10,
+        'tem_training_lr': 1e-3,
+        'tem_step_size': 10,
+        'tem_step_gamma': 0.1,
+        'tem_epoch': 20,
+        'tem_batch_size': 16,
+    }
+    for num_run in range(2):
+        for num_gpus in [1, 4]:
+            for weight_decay in [1e-4, 5e-4, 1e-3, 5e-3]:
+                counter += 1                            
+                _job = {k: v for k, v in job.items()}
+                _job['num_gpus'] = num_gpus
+                _job['tem_weight_decay'] = tem_weight_decay
+                _job['name'] = '%s-%05d' % (_job['name'], counter)
+                _job['num_cpus'] = num_gpus * 10
+                _job['gb'] = 64 * num_gpus
+                _job['time'] = 3
+                            
+                if find_counter == counter:
+                    return _job
+                # elif not find_counter:
+                #     func(_job, counter, email, code_directory)
+
+
+    print("Counter: ", counter)  # 200
+    # The jobs below are trying to do ThumosImages w CorrFlow.
+    # They use the representation change.
+    job = {
+        'name': '2019.09.10',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations',
+        'dataset': 'thumosimages',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 10,
+        'tem_step_size': 10,
+        'tem_epoch': 21,
+        'tem_batch_size': 8,
+        'do_representation': True,
+        'do_feat_conversion': True,
+        'representation_module': 'corrflow',
+        'representation_checkpoint': '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth',
+    }
+    for num_run in range(2):
+        for num_gpus in [8]:
+            for weight_decay in [1e-4, 5e-4, 1e-3, 5e-3]:
+                for tem_training_lr in [1e-3, 3e-3]:
+                    for tem_step_gamma in [0.75, 0.5, 0.1]:
+                        counter += 1
+                        _job = {k: v for k, v in job.items()}
+                        _job['num_gpus'] = num_gpus
+                        _job['tem_weight_decay'] = tem_weight_decay
+                        _job['tem_training_lr'] = tem_training_lr
+                        _job['tem_step_gamma'] = tem_step_gamma
+                        _job['name'] = '%s-%05d' % (_job['name'], counter)
+                        _job['num_cpus'] = num_gpus * 10
+                        _job['gb'] = 64 * num_gpus
+                        _job['time'] = 5 if num_run == 0 else 15
+                            
+                        if find_counter == counter:
+                            return _job
+                        # elif not find_counter:
+                        #     func(_job, counter, email, code_directory)
+
+
+    print("Counter: ", counter)   # 248
+    # The jobs below are trying to do ThumosImages w CorrFlow.
+    # They however use the FULL representation from CF, which has
+    # a size of 225280. Need to reduce the batch size to match.
+    job = {
+        'name': '2019.09.10',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations',
+        'dataset': 'thumosimages',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 10,
+        'tem_step_size': 10,
+        'tem_epoch': 21,
+        'tem_batch_size': 4,
+        'do_representation': True,
+        'do_feat_conversion': False,
+        'representation_module': 'corrflow',
+        'representation_checkpoint': '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth',
+    }
+    for num_run in range(2):
+        for num_gpus in [8]:
+            for weight_decay in [1e-4, 5e-4, 1e-3, 5e-3]:
+                for tem_training_lr in [1e-3, 3e-3]:
+                    for tem_step_gamma in [0.75, 0.5, 0.1]:
+                        counter += 1                            
+                        _job = {k: v for k, v in job.items()}
+                        _job['num_gpus'] = num_gpus
+                        # Sigh, fuck me.
+                        _job['tem_weight_decay'] = tem_weight_decay
+                        _job['tem_training_lr'] = tem_training_lr
+                        _job['tem_step_gamma'] = tem_step_gamma
+                        _job['name'] = '%s-%05d' % (_job['name'], counter)
+                        _job['num_cpus'] = num_gpus * 10
+                        _job['gb'] = 64 * num_gpus
+                        _job['time'] = 5 if num_run == 0 else 15
+                            
+                        if find_counter == counter:
+                            return _job
+                        # elif not find_counter:
+                        #     func(_job, counter, email, code_directory)
+
+    print("Counter: ", counter)   # 296
+    # The jobs below are trying to do ThumosImages w CorrFlow.
+    # They use the representation change.
+    job = {
+        'name': '2019.09.10',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations',
+        'dataset': 'thumosimages',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 10,
+        'tem_step_size': 10,
+        'tem_epoch': 21,
+        'tem_batch_size': 8,
+        'do_representation': True,
+        'do_feat_conversion': True,
+        'representation_module': 'corrflow',
+        'representation_checkpoint': '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth',
+    }
+    for num_run in range(2):
+        for num_gpus in [8]:
+            for tem_weight_decay in [1e-4, 5e-4, 1e-3]:
+                for tem_training_lr in [1e-3, 3e-4]:
+                    for tem_step_gamma in [0.75, 0.5, 0.1]:
+                        counter += 1
+                        _job = {k: v for k, v in job.items()}
+                        _job['num_gpus'] = num_gpus
+                        _job['tem_weight_decay'] = tem_weight_decay
+                        _job['tem_training_lr'] = tem_training_lr
+                        _job['tem_step_gamma'] = tem_step_gamma
+                        _job['name'] = '%s-%05d' % (_job['name'], counter)
+                        _job['num_cpus'] = num_gpus * 10
+                        _job['gb'] = 64 * num_gpus
+                        _job['time'] = 5
+                            
+                        if find_counter == counter:
+                            return _job
+                        # elif not find_counter:
+                        #     func(_job, counter, email, code_directory)
                         
 
+    print("Counter: ", counter)  # 332
+    # The jobs below are trying to do ThumosImages w CorrFlow.
+    # They however use the FULL representation from CF, which has
+    # a size of 225280. Need to reduce the batch size to match.
+    job = {
+        'name': '2019.09.10',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations',
+        'dataset': 'thumosimages',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 10,
+        'tem_step_size': 10,
+        'tem_epoch': 40,
+        'tem_batch_size': 4,
+        'do_representation': True,
+        'do_feat_conversion': False,
+        'representation_module': 'corrflow',
+        'representation_checkpoint': '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth',
+    }
+    for num_run in range(2):
+        for num_gpus in [8]:
+            for tem_weight_decay in [1e-4, 5e-4, 1e-3]:
+                for tem_training_lr in [1e-3, 3e-4]:
+                    for tem_step_gamma in [0.75, 0.5, 0.1]:
+                        counter += 1                            
+                        _job = {k: v for k, v in job.items()}
+                        _job['num_gpus'] = num_gpus
+                        _job['tem_weight_decay'] = tem_weight_decay
+                        _job['tem_training_lr'] = tem_training_lr
+                        _job['tem_step_gamma'] = tem_step_gamma
+                        _job['name'] = '%s-%05d' % (_job['name'], counter)
+                        _job['num_cpus'] = num_gpus * 10
+                        _job['gb'] = 64 * num_gpus
+                        _job['time'] = 8
+                            
+                        if find_counter == counter:
+                            return _job
+                        # elif not find_counter:
+                        #     func(_job, counter, email, code_directory)
+
+                        
 if __name__ == '__main__':
     run()

@@ -57,7 +57,8 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         if time.time() - opt['start_time'] > opt['time']*3600 - 10 and comet_exp is not None:
             comet_exp.end()
             sys.exit(-1)
-        
+
+        # for thumosimages, input_data shape: [bs, 100, 3, 176, 320]
         TEM_output = model(input_data)
         loss = TEM_loss_function(label_action, label_start, label_end,
                                  TEM_output, opt)
@@ -69,6 +70,9 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
 
         if n_iter % opt['tem_compute_loss_interval'] == 0:
             epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
+            l2 = sum([W.norm(2) for W in model.module.parameters()])
+            epoch_avg['current_l2'] = l2
+                        
             count += 1
             steps_per_second = 0
             if n_iter > 10:
@@ -76,7 +80,7 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
                 epoch_avg['steps_per_second'] = steps_per_second
             epoch_avg['current_lr'] = get_lr(optimizer)
             print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
-            s = ", ".join(['%s --> %.4f' % (key, epoch_avg[key]) for key in epoch_avg])
+            s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
             print("TEM avg so far this epoch: %s." % s)
             if comet_exp:
                 with comet_exp.train():
@@ -84,10 +88,11 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
 
     print('Count: ', count)
     epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
+    epoch_avg['current_l2'] = sum([W.norm(2) for W in model.module.parameters()])
     steps_per_second = (n_iter+1) / (time.time() - start)
     epoch_avg['steps_per_second'] = steps_per_second
     print('\n***End of Epoch %d***\nS/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
-    s = ", ".join(['%s --> %.3f' % (key, epoch_avg[key]) for key in epoch_avg])
+    s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
     print("TEM avg: %s." % s)
     if comet_exp:
         with comet_exp.train():
@@ -126,7 +131,7 @@ def test_TEM(data_loader, model, epoch, global_step, comet_exp, opt):
         with comet_exp.test():
             comet_exp.log_metrics(epoch_values, step=global_step, epoch=epoch)
 
-    s = ", ".join(['%s --> %.3f' % (k, epoch_values[k]) for k in keys])
+    s = ", ".join(['%s --> %.6f' % (k, epoch_values[k]) for k in keys])
     print("TEM avg test on epoch %d: %s." % (epoch, s))
     state = {'epoch': epoch, 'global_step': global_step, 'state_dict': model.state_dict()}
     save_dir = os.path.join(opt["checkpoint_path"], opt['name'])
@@ -173,7 +178,7 @@ def train_PEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
                 epoch_avg['steps_per_second'] = steps_per_second
             epoch_avg['current_lr'] = get_lr(optimizer)
             print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
-            s = ", ".join(['%s --> %.4f' % (key, epoch_avg[key]) for key in epoch_avg])
+            s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
             print("PEM avg so far this epoch: %s." % s)
             if comet_exp:
                 with comet_exp.train():
@@ -184,7 +189,7 @@ def train_PEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
     steps_per_second = (n_iter+1) / (time.time() - start)
     epoch_avg['steps_per_second'] = steps_per_second
     print('\n***End of Epoch %d***\nS/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
-    s = ", ".join(['%s --> %.3f' % (key, epoch_avg[key]) for key in epoch_avg])
+    s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
     print("PEM avg: %s." % s)
     if comet_exp:
         with comet_exp.train():
@@ -214,7 +219,7 @@ def test_PEM(data_loader, model, epoch, global_step, comet_exp, opt):
         with comet_exp.test():
             comet_exp.log_metrics(epoch_values, step=global_step, epoch=epoch)
 
-    s = ", ".join(['%s --> %.04f' % (k, epoch_values[k]) for k in keys])
+    s = ", ".join(['%s --> %.06f' % (k, epoch_values[k]) for k in keys])
     print("PEM avg test on epoch %d: %s." % (epoch, s))
     state = {'epoch': epoch, 'global_step': global_step, 'state_dict': model.state_dict()}
 
@@ -271,7 +276,7 @@ def BSN_Train_TEM(opt):
             image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_test_tal.30'
         )
         train_sampler = None
-        
+
     train_loader = torch.utils.data.DataLoader(
         train_data_set,
         batch_size=model.module.batch_size,
@@ -279,7 +284,7 @@ def BSN_Train_TEM(opt):
         sampler=train_sampler,
         num_workers=opt['data_workers'],
         pin_memory=True,
-        drop_last=True)
+        drop_last=False)
 
     test_loader = torch.utils.data.DataLoader(
         test_data_set,
@@ -287,7 +292,7 @@ def BSN_Train_TEM(opt):
         shuffle=False,
         num_workers=opt['data_workers'],
         pin_memory=True,
-        drop_last=True)
+        drop_last=False)
 
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
                                                 step_size=opt["tem_step_size"],
@@ -317,9 +322,10 @@ def BSN_Train_TEM(opt):
         comet_exp.set_name(opt['name'])
 
     for epoch in range(opt["tem_epoch"]):
+        test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)
         global_step = train_TEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         scheduler.step()
-        test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)
+    test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)        
         
 
 def BSN_Train_PEM(opt):
@@ -395,9 +401,23 @@ def BSN_Train_PEM(opt):
 
 
 def BSN_inference_TEM(opt):
+    output_dir = os.path.join(opt['tem_results_dir'], opt['checkpoint_path'].split('/')[-1])
+    print(sorted(opt.items()))
+        
     model = TEM(opt)
     img_loading_func = get_img_loader(opt)
-    checkpoint_path = os.path.join(opt['checkpoint_path'], 'tem_best.pth')
+    checkpoint_epoch = opt['checkpoint_epoch']
+    if checkpoint_epoch is not None:
+        checkpoint_path = os.path.join(opt['checkpoint_path'], 'tem_checkpoint.%d.pth' % checkpoint_epoch)
+        output_dir = os.path.join(output_dir, 'ckpt.%d' % checkpoint_epoch)
+    else:
+        checkpoint_path = os.path.join(opt['checkpoint_path'], 'tem_best.pth')
+        output_dir = os.path.join(output_dir, 'ckpt.best')
+
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    print('Checkpoint path is ', checkpoint_path)
     checkpoint = torch.load(checkpoint_path)
     base_dict = {
         '.'.join(k.split('.')[1:]): v
@@ -407,15 +427,19 @@ def BSN_inference_TEM(opt):
     model = torch.nn.DataParallel(model).cuda()
     model.eval()
 
-    output_dir = os.path.join(opt['tem_results_dir'], opt['checkpoint_path'].split('/')[-1])
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
-    
     if opt['dataset'] == 'gymnastics':
         dataset = GymnasticsDataSet(opt, subset=opt['tem_results_subset'], img_loading_func=img_loading_func)
-    elif opt['dataset'] == 'thumos':
-        dataset = ThumosDataSet(opt, subset=opt['tem_results_subset'])
-        
+    elif opt['dataset'] == 'thumosfeatures':
+        feature_dirs = opt['feature_dirs'].split(',')
+        dataset = ThumosFeatures(opt, subset=opt['tem_results_subset'].title(), feature_dirs=feature_dirs)
+    elif opt['dataset'] == 'thumosimages':
+        img_loading_func = get_img_loader(opt)
+        dataset = ThumosImages(
+            opt, subset=opt['tem_results_subset'].title(),
+            img_loading_func=img_loading_func,
+            image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_%s_tal.30' % opt['tem_results_subset']
+        )
+                
     test_loader = torch.utils.data.DataLoader(
         dataset,
         batch_size=model.module.batch_size,
@@ -424,26 +448,24 @@ def BSN_inference_TEM(opt):
         pin_memory=True,
         drop_last=False)
 
-    columns = ["action", "start", "end", "xmin", "xmax"]
-    if opt['do_representation']:
-        columns.append('frames')
+    columns = ["action", "start", "end", "xmin", "xmax", "frames"]
         
     current_video = None
     current_data = [[] for _ in range(len(columns))]
-    for test_idx, (index_list, input_data, anchor_xmin, anchor_xmax) in enumerate(test_loader):
+    for test_idx, (index_list, input_data, anchor_xmin, anchor_xmax, video, snippets) in enumerate(test_loader):
         # The data should be coming back s.t. consecutive data are from the same video.
         # until there is a breakpoint and it starts a new video.
         TEM_output = model(input_data).detach().cpu().numpy()
         batch_action = TEM_output[:, 0, :]
         batch_start = TEM_output[:, 1, :]
         batch_end = TEM_output[:, 2, :]
-
+        
         index_list = index_list.numpy()
-        anchor_xmin = np.array([x.numpy()[0] for x in anchor_xmin])
-        anchor_xmax = np.array([x.numpy()[0] for x in anchor_xmax])
-
         for batch_idx, full_idx in enumerate(index_list):
-            if opt['do_representation']:
+            curr_anchor_xmin = anchor_xmin[batch_idx].numpy()
+            curr_anchor_xmax = anchor_xmax[batch_idx].numpy()  # np.array([x.numpy()[0] for x in anchor_xmax[full_idx]])
+            
+            if 'gymnastics' in opt['dataset']:
                 video, frame = dataset.frame_list[full_idx]
                 if not current_video:
                     print('First video: ', video, full_idx)
@@ -465,21 +487,35 @@ def BSN_inference_TEM(opt):
                 current_data[0].extend(batch_action[batch_idx])
                 current_data[1].extend(batch_start[batch_idx])
                 current_data[2].extend(batch_end[batch_idx])
+                # NOTE: Will this work ?
+                ###
                 current_data[3].extend(anchor_xmin)
                 current_data[4].extend(anchor_xmax)
+                ###
                 current_data[5].extend(list(frames))
             else:
-                video = dataset.video_list[full_idx]
-                video_action = batch_action[batch_idx]
-                video_start = batch_start[batch_idx]
-                video_end = batch_end[batch_idx]
-                video_result = np.stack((video_action, video_start, video_end,
-                                         anchor_xmin, anchor_xmax),
-                                        axis=1)
-                video_df = pd.DataFrame(video_result, columns=columns)
-                path = os.path.join(output_dir, '%s.csv' % video)
-                video_df.to_csv(path, index=False)
+                batch_video = video[batch_idx]
+                batch_snippets = snippets[batch_idx]
+                if not current_video:
+                    print('First video: ', batch_video)
+                    current_video = batch_video
+                    current_data = [[] for _ in range(len(columns))]
+                elif batch_video != current_video:
+                    print('Changing from video %s to video %s (%d / %d / %d)' % (current_video, batch_video, full_idx, batch_idx, test_idx))
+                    video_result = np.stack(current_data, axis=1)
+                    video_df = pd.DataFrame(video_result, columns=columns)
+                    path = os.path.join(output_dir, '%s.csv' % current_video)
+                    video_df.to_csv(path, index=False)
+                    current_video = batch_video
+                    current_data = [[] for _ in range(len(columns))]
 
+                current_data[0].extend(batch_action[batch_idx])
+                current_data[1].extend(batch_start[batch_idx])
+                current_data[2].extend(batch_end[batch_idx])
+                current_data[3].extend(curr_anchor_xmin)
+                current_data[4].extend(curr_anchor_xmax)
+                current_data[5].extend(batch_snippets)
+                    
     if current_data[0]:
         video_result = np.stack(current_data, axis=1)
         video_df = pd.DataFrame(video_result, columns=columns)
@@ -568,15 +604,6 @@ def main(opt):
         opt['pem_training_lr'] *= num_gpus
     print(opt)
 
-    path = opt['checkpoint_path']
-    if opt['module'] != 'TEM':
-        path = os.path.join(path, opt['name'])
-    if not os.path.exists(path):
-        os.makedirs(path)
-    path = os.path.join(path, '%s.opts.json' % opt['module'])
-    with open(path, 'w') as f:
-        json.dump(opt, f)
-    
     if opt["module"] == "TEM":
         if opt["mode"] == "train":
             print("TEM training start")

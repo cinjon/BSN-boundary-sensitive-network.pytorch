@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
+from collections import defaultdict
 import json
 import os
 from pathlib import Path
+import re
 
 import numpy as np
 import pandas as pd
@@ -89,6 +91,10 @@ class Thumos(data.Dataset):
             windows_start = [i* stride for i in range(num_windows)]
             if num_snippet < window_size:
                 windows_start = [0]
+                if self.feature_dirs:
+                    # Add on a bunch of zero data if there aren't enough windows.
+                    tmp_data = np.zeros((window_size - num_snippet, 400))
+                    df_data = np.concatenate((df_data, tmp_data), axis=0)
                 df_snippet.extend([
                     df_snippet[-1] + temporal_gap*(i+1)
                     for i in range(window_size - num_snippet)
@@ -97,11 +103,9 @@ class Thumos(data.Dataset):
                 windows_start.append(num_snippet - window_size)
 
             for start in windows_start:
-                # if start + window_size > num_snippet:
-                #     continue
-
                 if self.feature_dirs:
-                    tmp_data = df_data[start:start + window_size, :]                    
+                    tmp_data = df_data[start:start + window_size, :]
+                    
                 tmp_snippets = np.array(df_snippet[start:start + window_size])
                 tmp_anchor_xmins = tmp_snippets - temporal_gap/2.
                 tmp_anchor_xmaxs = tmp_snippets + temporal_gap/2.
@@ -124,7 +128,6 @@ class Thumos(data.Dataset):
                     if self.feature_dirs:
                         list_data.append(np.array(tmp_data).astype(np.float32))
 
-        print('Size of data: ', len(self.data['gt_bbox']))
         self.data = {
             'gt_bbox': list_gt_bbox,
             'anchor_xmins': list_anchor_xmins,
@@ -132,6 +135,7 @@ class Thumos(data.Dataset):
             'video_names': list_videos,
             'indices': list_indices
         }
+        print('Size of data: ', len(self.data['gt_bbox']))
         if self.feature_dirs:
             self.data['video_data'] = list_data
 
@@ -145,7 +149,9 @@ class Thumos(data.Dataset):
             match_score_action, match_score_start, match_score_end = self._get_train_label(gt_bbox, anchor_xmin, anchor_xmax)
             return video_data, match_score_action, match_score_start, match_score_end
         else:
-            return index, video_data, anchor_xmin, anchor_xmax
+            video_name = self.data['video_names'][index]
+            snippets = self.data['indices'][index]
+            return index, video_data, anchor_xmin, anchor_xmax, video_name, snippets
 
     def _get_train_label(self, gt_bbox, anchor_xmin, anchor_xmax):
         gt_bbox = np.array(gt_bbox)
@@ -200,7 +206,7 @@ class ThumosFeatures(Thumos):
         return data['video_data'][index]
     
 
-class ThumosImages(data.Dataset):
+class ThumosImages(Thumos):
 
     def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None):
         super(ThumosImages, self).__init__(opt, subset, feature_dirs=None, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)        
@@ -208,15 +214,24 @@ class ThumosImages(data.Dataset):
     def _get_video_data(self, data, index):
         indices = data['indices'][index]
         name = data['video_names'][index]
-        path = os.path.join(self.image_dir, video_name)
+        path = os.path.join(self.image_dir, name)
         path = Path(path)
         paths = [path / ('%010.4f.npy' % (i / self.fps)) for i in indices]
-        imgs = [self.img_loading_func(p.absolute()) for p in paths]
+        imgs = [self.img_loading_func(p.absolute()) for p in paths if p.exists()]
+        # if len(imgs) < self.window_size:
+        #     imgs.extend([np.zeros(imgs[-1].shape) for _ in range(self.window_size - len(imgs))])
+            
         if type(imgs[0]) == np.array:
             video_data = np.array(imgs)
             video_data = torch.Tensor(video_data)
         elif type(imgs[0]) == torch.Tensor:
             video_data = torch.stack(imgs)
+
+        if len(video_data) < self.window_size:
+            shape = [self.window_size - len(video_data)]
+            shape += list(video_data.shape[1:])
+            zeros = torch.zeros(*shape)
+            video_data = torch.cat([video_data, zeros], axis=0)
         return video_data
     
 
@@ -330,7 +345,8 @@ class GymnasticsDataSet(data.Dataset):
                 index, anchor_xmin, anchor_xmax, start, end)
             return video_data, match_score_action, match_score_start, match_score_end
         else:
-            return index, video_data, anchor_xmin, anchor_xmax
+            # TODO: Fix this.
+            return index, video_data, anchor_xmin, anchor_xmax, 'dummy'
 
     def _get_base_data(self, index, start=None, end=None):
         anchor_xmin = [
@@ -599,3 +615,77 @@ class ProposalDataSet(data.Dataset):
                 video_xmin_score = pdf.xmin_score.values[:]
                 video_xmax_score = pdf.xmax_score.values[:]
                 return video_feature, video_xmin, video_xmax, video_xmin_score, video_xmax_score
+
+
+def make_on_anno_files(mmd, videotable):
+    regex = re.compile('https://storage.googleapis.com/spaceofmotion/(.*)-(\d{2}\.\d{2}\.\d{2}\.\d{3})-(\d{2}\.\d{2}\.\d{2}\.\d{3}).*.comp.mp4')
+    path = Path('.')
+    newmmd = {k: {'abspath': (path / k).absolute(), 'threads': []} for k in videotable.values()}
+    for motion in mmd:
+        match = reg.match(motion['video_location'])
+        if not match:
+            for thread in motion['threads']:
+                thread['motion_video_location'] = motion['video_location']
+                thread['motion_master_video'] = motion['master_video']
+                newmmd[video]['threads'].append(thread)
+            continue
+        
+        videokey, start, end = match.groups()
+        video = videotable[videokey]
+        sh, sm, ss, sms = start.split('.')
+        eh, em, es, ems = end.split('.')
+        start = int(sh)*3600 + int(sm)*60 + int(ss) + int(sms)*1./1000
+        end = int(eh)*3600 + int(em)*60 + int(es) + int(ems)*1./1000
+        for thread in motion['threads']:
+            newthread = {}
+            for thk, thv in thread.items():
+                if thk == 'start_time':
+                    newthread[thk] = thv + start
+                elif thk == 'end_time':
+                    newthread[thk] = thv + start
+                elif thk == 'remarks':
+                    newremarks = []
+                    for remark in thv:
+                        newrem = {}
+                        for remk, remv in remark.items():
+                            if remk == 'start_time':
+                                newrem[remk] = remv + start
+                            elif remk == 'end_time':
+                                newrem[remk] = remv + start
+                            else:
+                                newrem[remk] = remv
+                        newremarks.append(newrem)
+                    newthread[thk] = newremarks
+                else:
+                    newthread[thk] = thv
+            # if thread['thread_slug'] == 'accomplish-gain-do-thread-1':
+            #     print(motion, start, end, newthread['start_time'], newthread['end_time'], thread['start_time'], thread['end_time'])
+            newthread['motion_video_location'] = motion['video_location']
+            newthread['motion_master_video'] = motion['master_video']
+            newmmd[video]['threads'].append(newthread)
+
+                        
+    on_anno = {}
+    for k, v in mmd.items():
+        current_start = None
+        current_end = None
+        wv = {i:j for i, j in v.items()}
+        wv['annotations'] = []
+        for anno in v['annotations']:
+            s, e = anno['segment']
+            if current_start is None:
+                current_start = s
+                current_end = e
+            elif s <= current_end:
+                current_end = max(e, current_end)
+            else:
+                wv['annotations'].append({'label': 'on', 'segment': [current_start, current_end]})
+                current_start = s
+                current_end = e
+        wv['annotations'].append({'label': 'on', 'segment': [current_start, current_end]})
+        onmmd_anno[k] = wv
+        
+            
+            
+            
+            

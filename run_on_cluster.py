@@ -1,5 +1,6 @@
 """Run train on the cluster."""
 import os
+from copy import deepcopy
 
 # NOTE:
 # email should be your email. name should be identifying, like `cinjon`.
@@ -42,7 +43,8 @@ def _run_batch(job,
                code_directory,
                local_comet_dir=None):
     _ensure_dirs(slurm_logs, slurm_scripts)
-
+    job = deepcopy(job)
+    
     time = job.get('time', 16)
     hours = int(time)
     minutes = int((time - hours) * 60)
@@ -131,11 +133,6 @@ def fb_run_batch(job, counter, email, code_directory):
     slurm_logs = os.path.join(directory, 'bsn', 'slurm_logs')
     slurm_scripts = os.path.join(directory, 'bsn', 'slurm_scripts')
     comet_dir = os.path.join(directory, 'bsn', 'comet')
-    if 'checkpoint_path' not in job:
-        checkpoint_path = os.path.join(directory, 'bsn', 'checkpoint')
-        job['checkpoint_path'] = checkpoint_path
-        if not os.path.exists(checkpoint_path):
-            os.makedirs(checkpoint_path)
         
     _run_batch(job,
                counter,

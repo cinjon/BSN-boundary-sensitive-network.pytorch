@@ -9,19 +9,19 @@ from torch.nn import init
 from representations.corrflow.model import Model as CorrFlowModel
 from representations.corrflow.model import img_loading_func as corrflow_img_loading_func
 from representations.corrflow.representation import Representation as CorrFlowRepresentation
-# from representations import CorrFlowModel, CorrFlowRepresentation
+from representations.corrflow.representation import THUMOS_OUTPUT_DIM as CorrFlowThumosDim
 
 
 def _get_module(key):
     return {
         # 'timecycle': CycleTime,
         'corrflow':
-            (CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func)
+            (CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func, CorrFlowThumosDim)
     }.get(key)
 
 
 def get_img_loader(opt):
-    _, _, img_loading_func = _get_module(opt['representation_module'])
+    _, _, img_loading_func, _ = _get_module(opt['representation_module'])
     return img_loading_func
 
 
@@ -34,17 +34,29 @@ def partial_load(checkpoint_path, model):
     model.load_state_dict(model_dict)
 
 
-
 class TEM(torch.nn.Module):
 
     def __init__(self, opt):
         super(TEM, self).__init__()
 
-        self.feat_dim = opt["tem_feat_dim"]
         self.temporal_dim = opt["temporal_scale"]
+        self.nonlinear_factor = opt["tem_nonlinear_factor"]
         self.batch_size = opt["tem_batch_size"]
         self.num_videoframes = opt["num_videoframes"]
         self.c_hidden = opt["tem_hidden_dim"]
+        self.do_representation = opt['do_representation']
+        self.do_feat_conversion = opt['do_feat_conversion']
+        self.feat_dim = opt["tem_feat_dim"]
+        
+        if self.do_representation:
+            model, representation, _, representation_dim = _get_module(opt['representation_module'])
+            self.representation_model = model(opt)
+            if self.do_feat_conversion:
+                self.representation_mapping = representation(opt)
+            else:
+                self.feat_dim = representation_dim
+        print('Feature Dimension: ', self.feat_dim)
+                
         self.tem_best_loss = 10000000
         self.output_dim = 3
 
@@ -66,17 +78,12 @@ class TEM(torch.nn.Module):
                                      stride=1,
                                      padding=0)
 
-        self.do_representation = opt['do_representation']
-        if self.do_representation:
-            model, representation, _ = _get_module(opt['representation_module'])
-            self.representation_model = model(opt)
-            self.representation_mapping = representation(opt)
-        # self.num_transformer_blocks = opt['num_transformer_blocks']
-
         self.reset_params()
 
     def set_eval_representation(self):
         self.representation_model.eval()
+        if self.do_feat_conversion:
+            self.representation_mapping.eval()
 
     def translate(self, pretrained):
         return self.representation_model.translate(pretrained)
@@ -104,17 +111,22 @@ class TEM(torch.nn.Module):
             # Input is [bs, num_videoframes, 3, 256, 448]
             with torch.no_grad():
                 x = self.representation_model(x)
-            x = self.representation_mapping(x)
-            adj_batch_size, num_features = x.shape
-            # This might be different because of data parallelism
-            batch_size = int(adj_batch_size / self.num_videoframes)
-            x = x.view(batch_size, num_features, self.num_videoframes)
+            if self.do_feat_conversion:
+                x = self.representation_mapping(x)
+                adj_batch_size, num_features = x.shape
+                # This might be different because of data parallelism
+                batch_size = int(adj_batch_size / self.num_videoframes)
+                x = x.view(batch_size, num_features, self.num_videoframes)
+            else:
+                adj_batch_size = x.shape[0]
+                batch_size = int(adj_batch_size / self.num_videoframes)
+                x = x.view(batch_size, -1, self.num_videoframes)
         else:
             # From the Thumos features...
             x = x.transpose(1, 2)
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
-        x = torch.sigmoid(0.01 * self.conv3(x))
+        x = torch.sigmoid(self.nonlinear_factor * self.conv3(x))
         return x
 
 
@@ -126,6 +138,7 @@ class PEM(torch.nn.Module):
         self.feat_dim = opt["pem_feat_dim"]
         self.batch_size = opt["pem_batch_size"]
         self.hidden_dim = opt["pem_hidden_dim"]
+        self.nonlinear_factor = opt["pem_nonlinear_factor"]
         self.output_dim = 1
         self.pem_best_loss = 1000000
 
@@ -137,6 +150,6 @@ class PEM(torch.nn.Module):
                                    bias=True)
 
     def forward(self, x):
-        x = F.relu(0.1 * self.fc1(x))
-        x = torch.sigmoid(0.1 * self.fc2(x))
+        x = F.relu(self.nonlinear_factor * self.fc1(x))
+        x = torch.sigmoid(self.nonlinear_factor * self.fc2(x))
         return x

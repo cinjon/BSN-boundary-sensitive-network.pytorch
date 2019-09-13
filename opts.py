@@ -7,6 +7,8 @@ def parse_opt():
     parser.add_argument('--module', type=str, default='TEM')
     parser.add_argument('--mode', type=str, default='train')
     parser.add_argument('--checkpoint_path', type=str, default='./checkpoint')
+    parser.add_argument('--checkpoint_epoch', type=int, default=None,
+                        help="if none, use 'best'. else use that epoch.")    
 
     # Overall Dataset settings
     parser.add_argument('--dataset', default='gymnastics', type=str,
@@ -38,6 +40,7 @@ def parse_opt():
     # TEM model settings
     parser.add_argument('--tem_feat_dim', type=int, default=400)
     parser.add_argument('--tem_hidden_dim', type=int, default=512)
+    parser.add_argument('--tem_nonlinear_factor', type=int, default=0.01)
 
     # PEM model settings
     parser.add_argument('--pem_feat_dim', type=int, default=32)
@@ -46,17 +49,19 @@ def parse_opt():
     # TEM Training settings
     parser.add_argument('--tem_training_lr', type=float, default=0.001)
     parser.add_argument('--tem_weight_decay', type=float, default=0.0001)
+    parser.add_argument('--tem_lr_penalty', type=float, default=0.0)
     parser.add_argument('--tem_epoch', type=int, default=30) # NOTE: was 20
     parser.add_argument('--tem_step_size', type=int, default=7)
     parser.add_argument('--tem_step_gamma', type=float, default=0.1) # 0.1
     parser.add_argument('--tem_batch_size', type=int, default=16)
     parser.add_argument('--tem_match_thres', type=float, default=0.5)
-    parser.add_argument('--tem_compute_loss_interval', type=float, default=50)    
+    parser.add_argument('--tem_compute_loss_interval', type=float, default=20)    
     parser.add_argument('--tem_train_subset', type=str, default='train', help='can be train or overfit.')
     parser.add_argument('--tem_results_dir', type=str, default=None, help='used for inference to generate the results that PGM_proposals uses.')
     parser.add_argument('--tem_results_subset', type=str, default='full', help='can be full, train, or overfit.')
     
     # PEM Training settings
+    parser.add_argument('--pem_nonlinear_factor', type=int, default=0.1)
     parser.add_argument('--pem_training_lr', type=float, default=0.01)
     parser.add_argument('--pem_weight_decay', type=float, default=0.00001)
     parser.add_argument('--pem_epoch', type=int, default=20)
@@ -67,7 +72,7 @@ def parse_opt():
     parser.add_argument('--pem_u_ratio_l', type=float, default=2)
     parser.add_argument('--pem_high_iou_thres', type=float, default=0.7)
     parser.add_argument('--pem_low_iou_thres', type=float, default=0.3)
-    parser.add_argument('--pem_compute_loss_interval', type=float, default=25)        
+    parser.add_argument('--pem_compute_loss_interval', type=float, default=20) 
 
     # PEM inference settings
     parser.add_argument('--pem_inference_results_dir', type=str, default=None, help='where to save the pem_inference results.')
@@ -106,6 +111,7 @@ def parse_opt():
                         default="./output/evaluation_result.jpg")
 
     parser.add_argument('--do_representation', action='store_true')
+    parser.add_argument('--do_feat_conversion', action='store_true')
     parser.add_argument(
         '--representation_module',
         type=str,
@@ -119,13 +125,13 @@ def parse_opt():
         default=
         '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth',
         help='the checkpoint for the underlying representation module.')
-    parser.add_argument('--num_videoframes', type=int, default=None)
+    parser.add_argument('--num_videoframes', type=int, default=100)
     parser.add_argument(
         '--skip_videoframes',
         type=int,
-        default=1,
+        default=5,
         help=
-        'the number of video frames to skip in between each one. the default of 1 means that there is no skip.'
+        'the number of video frames to skip in between each one. using 1 means that there is no skip.'
     )
 
     parser.add_argument('--log_to_comet', action='store_true', default=False)

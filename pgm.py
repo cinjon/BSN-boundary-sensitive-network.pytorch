@@ -43,11 +43,19 @@ def ioa_with_anchors(anchors_min, anchors_max, box_min, box_max):
     return scores
 
 
-def generate_proposals_repr(opt, video_list, video_dict):
+def generate_proposals(opt, video_list, video_data):
     start_time = time.time()
 
+    # NOTE: Hackity hack hack.
+    video_dict = None
+    anno_df = None
+    if type(video_data) == dict:
+        video_dict = video_data
+    else:
+        anno_df = video_data
+
     tem_results_dir = opt['tem_results_dir']
-    proposals_dir = os.path.join(opt['pgm_proposals_dir'], tem_results_dir.split('/')[-1])
+    proposals_dir = opt['pgm_proposals_dir']
         
     for video_name in video_list:
         print('Starting %s' % video_name)
@@ -57,6 +65,7 @@ def generate_proposals_repr(opt, video_list, video_dict):
             continue
         
         tdf = pd.read_csv(results_path)
+        print(tdf)
         start_scores = tdf.start.values[:]
         end_scores = tdf.end.values[:]
         frame_list = tdf.frames.values[:]
@@ -114,28 +123,31 @@ def generate_proposals_repr(opt, video_list, video_dict):
 
         col_name = ["xmin", "xmax", "xmin_score", "xmax_score"]
         new_df = pd.DataFrame(new_props, columns=col_name)
-        new_df["score"] = new_df.xmin_score * new_df.xmax_score
-        print('Filtering from ', len(new_df))
-        new_df = new_df[new_df.score > opt['pgm_score_threshold']]
-        print('... To ', len(new_df))
+        # new_df["score"] = new_df.xmin_score * new_df.xmax_score
+        # print('Filtering from ', len(new_df))
+        # new_df = new_df[new_df.score > opt['pgm_score_threshold']]
+        # print('... To ', len(new_df))
 
-        path = os.path.join(proposals_dir, '%s.proposals.csv' % video_name)
-        print('saving preliminary to %s' % path)
-        new_df.to_csv(path, index=False)
+        # path = os.path.join(proposals_dir, '%s.proposals.csv' % video_name)
+        # print('saving preliminary to %s' % path)
+        # new_df.to_csv(path, index=False)
         
-        # new_df = new_df.sort_values(by="score", ascending=False)
         print('Doing gt max')
-        video_info = video_dict[video_name]
-        video_fps = video_info['fps']
+        if video_dict is not None:
+            video_info = video_dict[video_name]
+            video_fps = video_info['fps']
+            annos = video_info["annotations"]
+            gt_xmins = []
+            gt_xmaxs = []
+            for idx in range(len(annos)):
+                if annos[idx]['label'] == 'off':
+                    continue
 
-        gt_xmins = []
-        gt_xmaxs = []
-        annos = video_info["annotations"]
-        for idx in range(len(annos)):
-            if annos[idx]['label'] == 'off':
-                continue
-            gt_xmins.append(annos[idx]["segment"][0] * video_fps)
-            gt_xmaxs.append(annos[idx]["segment"][1] * video_fps)
+                gt_xmins.append(annos[idx]["segment"][0] * video_fps)
+                gt_xmaxs.append(annos[idx]["segment"][1] * video_fps)
+        elif anno_df is not None:
+            gt_xmins = anno_df.startFrame.values[:]
+            gt_xmaxs = anno_df.endFrame.values[:]
             
         print('GT Xmins and Xmaxs')
         print(gt_xmins)
@@ -170,111 +182,6 @@ def generate_proposals_repr(opt, video_list, video_dict):
         print('Video %s took %.4f time' % (video_name, time.time() - start_time))
     print('Total time was %.4f' % (time.time() - start_time))
 
-def generate_proposals(opt, video_list, video_dict):
-    tscale = opt["temporal_scale"]
-    tgap = 1. / tscale
-    peak_thres = opt["pgm_threshold"]
-
-    tem_results_dir = opt['tem_results_dir']
-    proposals_dir = os.path.join(opt['pgm_proposals_dir'], tem_results_dir.split('/')[-1])
-    if not os.path.exists(proposals_dir):
-        os.makedirs(proposals_dir)
-        
-    for video_name in video_list:
-        results_path = os.path.join(tem_results_dir, '%s.csv' % video_name)
-        tdf = pd.read_csv(results_path)
-        start_scores = tdf.start.values[:]
-        end_scores = tdf.end.values[:]
-
-        max_start = max(start_scores)
-        max_end = max(end_scores)
-
-        start_bins = np.zeros(len(start_scores))
-        start_bins[[0, -1]] = 1
-        for idx in range(1, tscale - 1):
-            if start_scores[idx] > start_scores[
-                    idx + 1] and start_scores[idx] > start_scores[idx - 1]:
-                start_bins[idx] = 1
-            elif start_scores[idx] > (peak_thres * max_start):
-                start_bins[idx] = 1
-
-        end_bins = np.zeros(len(end_scores))
-        end_bins[[0, -1]] = 1
-        for idx in range(1, tscale - 1):
-            if end_scores[idx] > end_scores[
-                    idx + 1] and end_scores[idx] > end_scores[idx - 1]:
-                end_bins[idx] = 1
-            elif end_scores[idx] > (peak_thres * max_end):
-                end_bins[idx] = 1
-
-        xmin_list = []
-        xmin_score_list = []
-        xmax_list = []
-        xmax_score_list = []
-        for j in range(tscale):
-            if start_bins[j] == 1:
-                xmin_list.append(tgap / 2 + tgap * j)
-                xmin_score_list.append(start_scores[j])
-            if end_bins[j] == 1:
-                xmax_list.append(tgap / 2 + tgap * j)
-                xmax_score_list.append(end_scores[j])
-
-        new_props = []
-        for ii in range(len(xmax_list)):
-            tmp_xmax = xmax_list[ii]
-            tmp_xmax_score = xmax_score_list[ii]
-
-            for ij in range(len(xmin_list)):
-                tmp_xmin = xmin_list[ij]
-                tmp_xmin_score = xmin_score_list[ij]
-                if tmp_xmin >= tmp_xmax:
-                    break
-                new_props.append(
-                    [tmp_xmin, tmp_xmax, tmp_xmin_score, tmp_xmax_score])
-        new_props = np.stack(new_props)
-
-        col_name = ["xmin", "xmax", "xmin_score", "xmax_score"]
-        new_df = pd.DataFrame(new_props, columns=col_name)
-        new_df["score"] = new_df.xmin_score * new_df.xmax_score
-
-        new_df = new_df.sort_values(by="score", ascending=False)
-
-        video_info = video_dict[video_name]
-        video_frame = video_info['duration_frame']
-        video_second = video_info['duration_second']
-        feature_frame = video_info['feature_frame']
-        corrected_second = float(feature_frame) / video_frame * video_second
-
-        try:
-            gt_xmins = []
-            gt_xmaxs = []
-            for idx in range(len(video_info["annotations"])):
-                gt_xmins.append(video_info["annotations"][idx]["segment"][0] /
-                                corrected_second)
-                gt_xmaxs.append(video_info["annotations"][idx]["segment"][1] /
-                                corrected_second)
-            new_iou_list = []
-            for j in range(len(new_df)):
-                tmp_new_iou = max(
-                    iou_with_anchors(new_df.xmin.values[j],
-                                     new_df.xmax.values[j], gt_xmins, gt_xmaxs))
-                new_iou_list.append(tmp_new_iou)
-
-            new_ioa_list = []
-            for j in range(len(new_df)):
-                tmp_new_ioa = max(
-                    ioa_with_anchors(new_df.xmin.values[j],
-                                     new_df.xmax.values[j], gt_xmins, gt_xmaxs))
-                new_ioa_list.append(tmp_new_ioa)
-            new_df["match_iou"] = new_iou_list
-            new_df["match_ioa"] = new_ioa_list
-        except:
-            pass
-
-        path = os.path.join(proposals_dir, '%s.proposals.csv' % video_name)
-        print('saving to %s' % path)
-        new_df.to_csv(path, index=False)
-
 
 def getDatasetDict(opt):
     df = pd.read_csv(opt["video_info"])
@@ -302,9 +209,8 @@ def generate_features_repr(opt, video_list, video_dict):
     num_sample_interpld = opt["num_sample_interpld"]
 
     tem_results_dir = opt['tem_results_dir']
-    model = tem_results_dir.split('/')[-1]
-    proposals_dir = os.path.join(opt['pgm_proposals_dir'], model)
-    features_dir = os.path.join(opt['pgm_features_dir'], model)
+    proposals_dir = opt['pgm_proposals_dir']
+    features_dir = opt['pgm_features_dir']
 
     start_time = time.time()
     for video_name in video_list:
@@ -378,105 +284,13 @@ def generate_features_repr(opt, video_list, video_dict):
     print('Total time was ', time.time() - start_time)
 
 
-def generate_features(opt, video_list, video_dict):
-    num_sample_start = opt["num_sample_start"]
-    num_sample_end = opt["num_sample_end"]
-    num_sample_action = opt["num_sample_action"]
-    num_sample_interpld = opt["num_sample_interpld"]
-
-    tem_results_dir = opt['tem_results_dir']    
-    for video_name in video_list:
-        tem_path = os.path.join(tem_results_dir, video_name + ".csv")
-        adf = pd.read_csv(tem_path)
-        score_action = adf.action.values[:]
-        seg_xmins = adf.xmin.values[:]
-        seg_xmaxs = adf.xmax.values[:]
-        video_scale = len(adf)
-        video_gap = seg_xmaxs[0] - seg_xmins[0]
-        video_extend = video_scale / 4 + 10
-        pdf = pd.read_csv("./output/PGM_proposals/" + video_name + ".csv")
-        video_subset = video_dict[video_name]['subset']
-        if video_subset == "training":
-            pdf = pdf[:opt["pem_top_K"]]
-        else:
-            pdf = pdf[:opt["pem_top_K_inference"]]
-        tmp_zeros = np.zeros([video_extend])
-        score_action = np.concatenate((tmp_zeros, score_action, tmp_zeros))
-        tmp_cell = video_gap
-        tmp_x = [-tmp_cell/2-(video_extend-1-ii)*tmp_cell for ii in range(video_extend)] + \
-                 [tmp_cell/2+ii*tmp_cell for ii in range(video_scale)] + \
-                  [tmp_cell/2+seg_xmaxs[-1] +ii*tmp_cell for ii in range(video_extend)]
-        f_action = interp1d(tmp_x, score_action, axis=0)
-        feature_bsp = []
-
-        for idx in range(len(pdf)):
-            xmin = pdf.xmin.values[idx]
-            xmax = pdf.xmax.values[idx]
-            xlen = xmax - xmin
-            xmin_0 = xmin - xlen * opt["bsp_boundary_ratio"]
-            xmin_1 = xmin + xlen * opt["bsp_boundary_ratio"]
-            xmax_0 = xmax - xlen * opt["bsp_boundary_ratio"]
-            xmax_1 = xmax + xlen * opt["bsp_boundary_ratio"]
-            #start
-            plen_start = (xmin_1 - xmin_0) / (num_sample_start - 1)
-            plen_sample = plen_start / num_sample_interpld
-            tmp_x_new = [
-                xmin_0 - plen_start / 2 + plen_sample * ii
-                for ii in range(num_sample_start * num_sample_interpld + 1)
-            ]
-            tmp_y_new_start_action = f_action(tmp_x_new)
-            tmp_y_new_start = [
-                np.mean(
-                    tmp_y_new_start_action[ii * num_sample_interpld:(ii + 1) *
-                                           num_sample_interpld + 1])
-                for ii in range(num_sample_start)
-            ]
-            #end
-            plen_end = (xmax_1 - xmax_0) / (num_sample_end - 1)
-            plen_sample = plen_end / num_sample_interpld
-            tmp_x_new = [
-                xmax_0 - plen_end / 2 + plen_sample * ii
-                for ii in range(num_sample_end * num_sample_interpld + 1)
-            ]
-            tmp_y_new_end_action = f_action(tmp_x_new)
-            tmp_y_new_end = [
-                np.mean(
-                    tmp_y_new_end_action[ii * num_sample_interpld:(ii + 1) *
-                                         num_sample_interpld + 1])
-                for ii in range(num_sample_end)
-            ]
-            #action
-            plen_action = (xmax - xmin) / (num_sample_action - 1)
-            plen_sample = plen_action / num_sample_interpld
-            tmp_x_new = [
-                xmin - plen_action / 2 + plen_sample * ii
-                for ii in range(num_sample_action * num_sample_interpld + 1)
-            ]
-            tmp_y_new_action = f_action(tmp_x_new)
-            tmp_y_new_action = [
-                np.mean(tmp_y_new_action[ii * num_sample_interpld:(ii + 1) *
-                                            num_sample_interpld + 1])
-                for ii in range(num_sample_action)
-            ]
-            tmp_feature = np.concatenate(
-                [tmp_y_new_action, tmp_y_new_start, tmp_y_new_end])
-            feature_bsp.append(tmp_feature)
-        feature_bsp = np.array(feature_bsp)
-        np.save("./output/PGM_feature/" + video_name, feature_bsp)
-
-
 def PGM_proposal_generation(opt):
-    pgm_dir = opt["pgm_proposals_dir"]
-    if not os.path.exists(pgm_dir):
-        os.makedirs(pgm_dir, exist_ok=True)
-
-    tem_results_dir = opt['tem_results_dir']
-    pgm_dir = os.path.join(pgm_dir, tem_results_dir.split('/')[-1])
-    if not os.path.exists(pgm_dir):
-        os.makedirs(pgm_dir)
-        
-    video_dict = load_json(opt["video_anno"])
-    video_list = sorted(video_dict.keys())  #[:199]
+    if 'thumos' in opt['dataset']:
+        video_data = pd.read_csv(os.path.join(opt["video_info"], 'Full_Annotation.csv'))
+        video_list = sorted(list(set(video_data.video.values[:])))
+    else:
+        video_data = load_json(opt["video_anno"])
+        video_list = sorted(video_data.keys())  #[:199]
     
     # NOTE: change this back.
     # video_list = [k for k in video_list if '12.18.18' in k or '12.5.18' in k]
@@ -486,7 +300,7 @@ def PGM_proposal_generation(opt):
     num_threads = min(num_videos, opt['pgm_thread'])
     num_videos_per_thread = int(num_videos / num_threads)
     processes = []
-    func = generate_proposals_repr if opt['do_representation'] else generate_proposals
+    func = generate_proposals
     
     for tid in range(num_threads - 1):
         tmp_video_list = video_list[tid * num_videos_per_thread:(tid + 1) * num_videos_per_thread]
@@ -494,7 +308,7 @@ def PGM_proposal_generation(opt):
                        args=(
                            opt,
                            tmp_video_list,
-                           video_dict,
+                           video_data,
                        ))
         p.start()
         processes.append(p)
@@ -506,7 +320,7 @@ def PGM_proposal_generation(opt):
                    args=(
                        opt,
                        tmp_video_list,
-                       video_dict,
+                       video_data,
                    ))
     p.start()
     processes.append(p)
@@ -527,7 +341,7 @@ def PGM_feature_generation(opt):
     # video_list = [k for k in video_list if '12.18.18' in k or '12.5.18' in k]
     print(video_list)
     
-    func = generate_features_repr if opt['do_representation'] else generate_features
+    func = generate_features_repr
     num_videos = len(video_list)
     num_threads = min(num_videos, opt['pgm_thread'])
     num_videos_per_thread = int(num_videos / opt["pgm_thread"])
