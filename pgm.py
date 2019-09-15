@@ -56,16 +56,17 @@ def generate_proposals(opt, video_list, video_data):
 
     tem_results_dir = opt['tem_results_dir']
     proposals_dir = opt['pgm_proposals_dir']
+    skipped_paths = []
         
     for video_name in video_list:
         print('Starting %s' % video_name)
         results_path = os.path.join(tem_results_dir, '%s.csv' % video_name)
         if not os.path.exists(results_path):
             print('Skipping %s because %s is not a path.' % (video_name, results_path))
+            skipped_paths.append(results_path)
             continue
         
         tdf = pd.read_csv(results_path)
-        print(tdf)
         start_scores = tdf.start.values[:]
         end_scores = tdf.end.values[:]
         frame_list = tdf.frames.values[:]
@@ -150,8 +151,6 @@ def generate_proposals(opt, video_list, video_data):
             gt_xmaxs = anno_df.endFrame.values[:]
             
         print('GT Xmins and Xmaxs')
-        print(gt_xmins)
-        print(gt_xmaxs)
         new_iou_list = []
         match_xmin_list = []
         match_xmax_list = []
@@ -181,6 +180,7 @@ def generate_proposals(opt, video_list, video_data):
         new_df.to_csv(path, index=False)
         print('Video %s took %.4f time' % (video_name, time.time() - start_time))
     print('Total time was %.4f' % (time.time() - start_time))
+    print(skipped_paths)
 
 
 def getDatasetDict(opt):
@@ -294,7 +294,6 @@ def PGM_proposal_generation(opt):
     
     # NOTE: change this back.
     # video_list = [k for k in video_list if '12.18.18' in k or '12.5.18' in k]
-    print(video_list)
     
     num_videos = len(video_list)
     num_threads = min(num_videos, opt['pgm_thread'])
@@ -315,7 +314,6 @@ def PGM_proposal_generation(opt):
 
     tmp_video_list = video_list[(num_threads - 1) *
                                 num_videos_per_thread:]
-    print(tmp_video_list)
     p = mp.Process(target=func,
                    args=(
                        opt,
@@ -339,15 +337,12 @@ def PGM_feature_generation(opt):
     video_list = sorted(video_dict.keys())
     # NOTE: change this back.
     # video_list = [k for k in video_list if '12.18.18' in k or '12.5.18' in k]
-    print(video_list)
     
     func = generate_features_repr
     num_videos = len(video_list)
     num_threads = min(num_videos, opt['pgm_thread'])
     num_videos_per_thread = int(num_videos / opt["pgm_thread"])
     processes = []
-    print('\n***\n')
-    print(opt['pgm_thread'], num_videos_per_thread, video_list)
     for tid in range(opt["pgm_thread"] - 1):
         tmp_video_list = video_list[tid * num_videos_per_thread:(tid + 1) *
                                     num_videos_per_thread]

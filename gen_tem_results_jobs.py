@@ -38,9 +38,10 @@ for ckpt_subdir in os.listdir(ckpt_directory):
     
     _job['checkpoint_path'] = os.path.join(ckpt_directory, ckpt_subdir)
     _job['tem_results_subset'] = 'full'
+    name = _job['name']
     for ckpt_epoch in [5, 15, 20]:
         _job['checkpoint_epoch'] = ckpt_epoch
-        _job['name'] += '.ckpt%d' % ckpt_epoch
+        _job['name'] = '%s.ckpt%d' % (name, ckpt_epoch)
         print(ckpt_subdir, counter)
         print(sorted(_job.items()))
         fb_run_batch(_job, counter, email, code_directory)

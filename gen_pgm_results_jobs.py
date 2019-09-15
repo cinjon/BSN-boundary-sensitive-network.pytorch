@@ -25,6 +25,7 @@ for tem_results_subdir in os.listdir(tem_results_dir):
     counter = int(regex.match(tem_results_subdir).groups()[0])
     job = run(find_counter=counter)
 
+    name = job['name']
     for ckpt_subdir in os.listdir(os.path.join(tem_results_dir, tem_results_subdir)):
         _job = deepcopy(job)
         _job['num_gpus'] = 0
@@ -46,8 +47,7 @@ for tem_results_subdir in os.listdir(tem_results_dir):
             
         _job['module'] = 'PGM'
         _job['mode'] = 'pgm'
+        _job['name'] = '%s.%s' % (name, ckpt_subdir)
         
         print(counter, sorted(_job.items()))
         fb_run_batch(_job, counter, email, code_directory)
-        break
-    break

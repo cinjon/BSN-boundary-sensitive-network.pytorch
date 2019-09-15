@@ -11,7 +11,7 @@ import torch.optim as optim
 import numpy as np
 from tensorboardX import SummaryWriter
 import opts
-from dataset import ThumosFeatures, ThumosImages, ProposalDataSet, GymnasticsSampler, ProposalSampler
+from dataset import ThumosFeatures, ThumosImages, ProposalDataSet, GymnasticsSampler, GymnasticsDataSet, ProposalSampler
 from models import TEM, PEM, partial_load, get_img_loader
 from loss_function import TEM_loss_function, PEM_loss_function
 import pandas as pd
@@ -70,7 +70,7 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
 
         if n_iter % opt['tem_compute_loss_interval'] == 0:
             epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
-            l2 = sum([W.norm(2) for W in model.module.parameters()])
+            l2 = sum([W.norm(2) for W in model.module.parameters()]).cpu().detach().numpy()
             epoch_avg['current_l2'] = l2
                         
             count += 1
@@ -79,6 +79,7 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
                 steps_per_second = (n_iter+1) / (time.time() - start)
                 epoch_avg['steps_per_second'] = steps_per_second
             epoch_avg['current_lr'] = get_lr(optimizer)
+            print({k: type(v) for k, v in epoch_avg.items()})
             print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
             s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
             print("TEM avg so far this epoch: %s." % s)
@@ -322,7 +323,7 @@ def BSN_Train_TEM(opt):
         comet_exp.set_name(opt['name'])
 
     for epoch in range(opt["tem_epoch"]):
-        test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)
+        # test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)
         global_step = train_TEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         scheduler.step()
     test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)        

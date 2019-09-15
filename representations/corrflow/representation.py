@@ -5,6 +5,7 @@ import torch.nn.functional as F
 
 
 THUMOS_OUTPUT_DIM = 64*44*80
+GYMNASTICS_OUTPUT_DIM = 407040
 
 
 class ResidualBlock(nn.Module):

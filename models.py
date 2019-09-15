@@ -10,18 +10,22 @@ from representations.corrflow.model import Model as CorrFlowModel
 from representations.corrflow.model import img_loading_func as corrflow_img_loading_func
 from representations.corrflow.representation import Representation as CorrFlowRepresentation
 from representations.corrflow.representation import THUMOS_OUTPUT_DIM as CorrFlowThumosDim
+from representations.corrflow.representation import GYMNASTICS_OUTPUT_DIM as CorrFlowGymnasticsDim
 
 
 def _get_module(key):
     return {
         # 'timecycle': CycleTime,
-        'corrflow':
-            (CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func, CorrFlowThumosDim)
+        'corrflow-thumosimages':
+            (CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func, CorrFlowThumosDim),
+        'corrflow-gymnastics':
+            (CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func, CorrFlowGymnasticsDim)
     }.get(key)
 
 
 def get_img_loader(opt):
-    _, _, img_loading_func, _ = _get_module(opt['representation_module'])
+    key = '%s-%s' % (opt['representation_module'], opt['dataset'])
+    _, _, img_loading_func, _ = _get_module(key)
     return img_loading_func
 
 
@@ -49,7 +53,8 @@ class TEM(torch.nn.Module):
         self.feat_dim = opt["tem_feat_dim"]
         
         if self.do_representation:
-            model, representation, _, representation_dim = _get_module(opt['representation_module'])
+            key = '%s-%s' % (opt['representation_module'], opt['dataset'])
+            model, representation, _, representation_dim = _get_module(key)
             self.representation_model = model(opt)
             if self.do_feat_conversion:
                 self.representation_mapping = representation(opt)

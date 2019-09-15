@@ -249,28 +249,23 @@ class GymnasticsSampler(data.WeightedRandomSampler):
         # The fewer the number of frames, the higher chance there is of selecting from that video.
         weights = [total_frame_count * 1. / per_video_frame_count[k] for k, _ in frame_list]
 
-        per_video_frame_off_count = {k: 0 for k in video_dict.keys()}
-        off_indices = {k: set() for k in video_dict.keys()}
         on_indices = {k: set() for k in video_dict.keys()}
         for k, video_info in video_dict.items():
             fps = video_info['fps']
             for anno in video_info['annotations']:
-                end_frame = round(anno['segment'][1] * fps)
-                start_frame = round(anno['segment'][0] * fps)
-                count = end_frame - start_frame
-                if anno['label'] == 'off':
-                    per_video_frame_off_count[k] += count
-                    off_indices[k].update(range(start_frame, end_frame))
-                else:
-                    on_indices[k].update(range(start_frame, end_frame))                    
-        per_video_frame_off_ratio = {k: per_video_frame_off_count[k] * 1. / per_video_frame_count[k]
-                                     for k in per_video_frame_off_count.keys()}
+                if anno['label'] == 'on':
+                    end_frame = int(anno['segment'][1] * fps)
+                    start_frame = int(anno['segment'][0] * fps) + 1
+                    on_indices[k].update(range(start_frame, end_frame))
 
+        total_on_count = sum([len(v) for k, v in on_indices.items()])
+        total_on_ratio = 1. * total_on_count / total_frame_count
+        print('total on ratio: ', total_on_ratio, total_on_count, total_frame_count)
         for num, (k, frame) in enumerate(frame_list):
-            if frame in off_indices[k]:
-                weights[num] *= 0.5 / per_video_frame_off_ratio[k]
+            if frame in on_indices[k]:
+                weights[num] *= 0.5 / total_on_ratio
             else:
-                weights[num] *= 0.5 / (1 - per_video_frame_off_ratio[k])
+                weights[num] *= 0.5 / (1 - total_on_ratio)
 
         super(GymnasticsSampler, self).__init__(weights, len(weights), replacement=True)
 
@@ -291,9 +286,9 @@ class GymnasticsDataSet(data.Dataset):
         self.boundary_ratio = opt["boundary_ratio"]
         self.video_info_path = opt["video_info"]
         self.video_anno_path = opt["video_anno"]
-        self._getDatasetDict()
+        self._get_data()
 
-    def _getDatasetDict(self):
+    def _get_data(self):
         anno_df = pd.read_csv(self.video_info_path)
         anno_database = load_json(self.video_anno_path)
         self.video_dict = {}
@@ -312,18 +307,16 @@ class GymnasticsDataSet(data.Dataset):
         # It is probably the case that we can expand the dataset a ton by not doing this
         # but then most of the examples are really correlated.
         # Instead, starting from frame 0, we select every skip'th frame.
-        skip = self.skip_videoframes * self.num_videoframes
+        stride = self.skip_videoframes * self.num_videoframes
+        if self.overlap_windows:
+            stride = int(stride / 2)
+            
         self.frame_list = []
         for k, v in sorted(self.video_dict.items()):
-            num_frames = v['feature_frame'] - skip
-            if self.overlap_windows:
-                # In this scenario, we take overlapping windows. Used for training.
-                video_frames = [(k, i) for i in range(0, num_frames, skip)]
-            else:
-                # In this scenario, windows do not overlap. Used for testing.
-                video_frames = [(k, i) for i in range(0, num_frames, self.skip_videoframes)]                    
-            print('Video Dict: %s / total frames %d, frames after skipping %d' %  (k, num_frames, len(video_frames)))
-            self.frame_list.extend(video_frames)
+            num_frames = max(v['feature_frame'] - stride, 1)
+            start_frames = [(k, i) for i in range(0, num_frames, stride)]
+            # print('Video Dict: %s / total frames %d, frames after skipping %d' %  (k, num_frames, len(video_frames)))
+            self.frame_list.extend(start_frames)
 
         print("%s subset video numbers: %d" %
               (self.subset, len(self.video_list)))
@@ -361,18 +354,25 @@ class GymnasticsDataSet(data.Dataset):
         video_name, _ = self.frame_list[index]
         video_info = self.video_dict[video_name]
         fps = video_info['fps']
+        max_frames = video_info['duration_frame']
         path = Path(video_info['abspath'])
         paths = [
-            path / '{0:.4f}.npy'.format(i / fps)
-            for i in range(start, end, self.skip_videoframes)
+            path / '{:010.4f}.npy'.format(i / fps)
+            for i in range(start, end, self.skip_videoframes) \
+            if i < max_frames
         ]
         imgs = [self.img_loading_func(p.absolute()) for p in paths]
+        diff = len(list(range(start, end, self.skip_videoframes))) - len(imgs)
         if type(imgs[0]) == np.array:
+            if diff > 0:
+                imgs.extend([np.zeros(imgs[0].shape) for _ in range(diff)])
             video_data = np.array(imgs)
             video_data = torch.Tensor(video_data)
         elif type(imgs[0]) == torch.Tensor:
+            if diff > 0:
+                imgs.extend([torch.zeros(imgs[0].shape) for _ in range(diff)])
             video_data = torch.stack(imgs)
-        # NOTE: video_data is [num_videoframes, 3, 256, 448]
+        # NOTE: video_data is [num_videoframes, 3, 426, 240]
         return video_data, anchor_xmin, anchor_xmax
 
     def _get_train_label(self,
