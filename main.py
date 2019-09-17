@@ -89,7 +89,7 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
 
     print('Count: ', count)
     epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
-    epoch_avg['current_l2'] = sum([W.norm(2) for W in model.module.parameters()])
+    epoch_avg['current_l2'] = sum([W.norm(2) for W in model.module.parameters()]).cpu().detach().numpy()
     steps_per_second = (n_iter+1) / (time.time() - start)
     epoch_avg['steps_per_second'] = steps_per_second
     print('\n***End of Epoch %d***\nS/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
@@ -241,7 +241,6 @@ def test_PEM(data_loader, model, epoch, global_step, comet_exp, opt):
 def BSN_Train_TEM(opt):
     if opt['do_representation']:
         model = TEM(opt)
-        img_loading_func = get_img_loader(opt)
         partial_load(opt['representation_checkpoint'], model)
         for param in model.representation_model.parameters():
             param.requires_grad = False
@@ -258,6 +257,7 @@ def BSN_Train_TEM(opt):
                            weight_decay=opt["tem_weight_decay"])
 
     if opt['dataset'] == 'gymnastics':
+        img_loading_func = get_img_loader(opt)
         train_data_set = GymnasticsDataSet(opt, subset=opt['tem_train_subset'], img_loading_func=img_loading_func, overlap_windows=True)
         train_sampler = GymnasticsSampler(train_data_set.video_dict, train_data_set.frame_list)
         test_data_set = GymnasticsDataSet(opt, subset="test", img_loading_func=img_loading_func)
@@ -323,10 +323,10 @@ def BSN_Train_TEM(opt):
         comet_exp.set_name(opt['name'])
 
     for epoch in range(opt["tem_epoch"]):
-        # test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)
         global_step = train_TEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         scheduler.step()
-    test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)        
+        test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)
+    # test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)        
         
 
 def BSN_Train_PEM(opt):
@@ -343,7 +343,6 @@ def BSN_Train_PEM(opt):
         batch_data = torch.cat([x[0] for x in batch])
         batch_iou = torch.cat([x[1] for x in batch])
         return batch_data, batch_iou
-
 
     train_dataset = ProposalDataSet(opt, subset="train")
     train_sampler = ProposalSampler(train_dataset.proposals, train_dataset.indices, max_zero_weight=opt['pem_max_zero_weight'])
@@ -396,9 +395,10 @@ def BSN_Train_PEM(opt):
         comet_exp.set_name(opt['name'])    
 
     for epoch in range(opt["pem_epoch"]):
+        test_PEM(test_loader, model, epoch, global_step, comet_exp, opt)
         global_step = train_PEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         scheduler.step()
-        test_PEM(test_loader, model, epoch, global_step, comet_exp, opt)
+    test_PEM(test_loader, model, epoch, global_step, comet_exp, opt)
 
 
 def BSN_inference_TEM(opt):
@@ -406,7 +406,6 @@ def BSN_inference_TEM(opt):
     print(sorted(opt.items()))
         
     model = TEM(opt)
-    img_loading_func = get_img_loader(opt)
     checkpoint_epoch = opt['checkpoint_epoch']
     if checkpoint_epoch is not None:
         checkpoint_path = os.path.join(opt['checkpoint_path'], 'tem_checkpoint.%d.pth' % checkpoint_epoch)
@@ -429,6 +428,7 @@ def BSN_inference_TEM(opt):
     model.eval()
 
     if opt['dataset'] == 'gymnastics':
+        img_loading_func = get_img_loader(opt)
         dataset = GymnasticsDataSet(opt, subset=opt['tem_results_subset'], img_loading_func=img_loading_func)
     elif opt['dataset'] == 'thumosfeatures':
         feature_dirs = opt['feature_dirs'].split(',')
@@ -488,11 +488,8 @@ def BSN_inference_TEM(opt):
                 current_data[0].extend(batch_action[batch_idx])
                 current_data[1].extend(batch_start[batch_idx])
                 current_data[2].extend(batch_end[batch_idx])
-                # NOTE: Will this work ?
-                ###
                 current_data[3].extend(anchor_xmin)
                 current_data[4].extend(anchor_xmax)
-                ###
                 current_data[5].extend(list(frames))
             else:
                 batch_video = video[batch_idx]

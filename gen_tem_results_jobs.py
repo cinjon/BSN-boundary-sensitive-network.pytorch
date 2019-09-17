@@ -28,6 +28,9 @@ print(now)
 
 for ckpt_subdir in os.listdir(ckpt_directory):
     counter = int(regex.match(ckpt_subdir).groups()[0])
+    if counter not in [195]:
+        continue
+
     _job = run(find_counter=counter)
     _job['num_gpus'] = 8
     _job['num_cpus'] = 8 * 10
@@ -40,6 +43,11 @@ for ckpt_subdir in os.listdir(ckpt_directory):
     _job['tem_results_subset'] = 'full'
     name = _job['name']
     for ckpt_epoch in [5, 15, 20]:
+        if counter == 195:
+            if ckpt_epoch < 20:
+                continue
+            ckpt_epoch = 19
+            
         _job['checkpoint_epoch'] = ckpt_epoch
         _job['name'] = '%s.ckpt%d' % (name, ckpt_epoch)
         print(ckpt_subdir, counter)

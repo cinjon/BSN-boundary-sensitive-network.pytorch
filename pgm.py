@@ -184,16 +184,25 @@ def generate_proposals(opt, video_list, video_data):
 
 
 def getDatasetDict(opt):
-    df = pd.read_csv(opt["video_info"])
-    json_data = load_json(opt["video_anno"])
-    database = json_data
+    print(opt['video_info'])
+    print(opt['video_anno'])
+    video_info = opt['video_info']
+    if 'thumos' in opt['dataset']:
+        video_info = os.path.join(video_info, 'Full_Annotation.csv')
+    print(video_info)
+    df = pd.read_csv(video_info)
+    
+    database = load_json(opt["video_anno"])
     video_dict = {}
     keys = ['duration_frame', 'duration_second', 'feature_frame', 'annotations', 'fps']
     for i in range(len(df)):
         video_name = df.video.values[i]
         video_info = database[video_name]
         video_new_info = {k: video_info[k] for k in keys}
-        video_new_info['subset'] = df.subset.values[i]
+        if 'thumos' in opt['dataset']:
+            video_new_info['subset'] = video_name.split('_')[1]
+        else:
+            video_new_info['subset'] = df.subset.values[i]            
         video_dict[video_name] = video_new_info
     return video_dict
 
@@ -207,6 +216,10 @@ def generate_features_repr(opt, video_list, video_dict):
     num_sample_end = opt["num_sample_end"]
     num_sample_action = opt["num_sample_action"]
     num_sample_interpld = opt["num_sample_interpld"]
+    num_videoframes = opt["num_videoframes"]
+    skip_videoframes = opt["skip_videoframes"]
+    bookend_num = int(num_videoframes / skip_videoframes)
+    normalizer = skip_videoframes*(bookend_num - 1) - (skip_videoframes + int((skip_videoframes + 1)/2))
 
     tem_results_dir = opt['tem_results_dir']
     proposals_dir = opt['pgm_proposals_dir']
@@ -216,6 +229,7 @@ def generate_features_repr(opt, video_list, video_dict):
     for video_name in video_list:
         s0 = time.time()
         tem_path = os.path.join(tem_results_dir, video_name + ".csv")
+        print(tem_path)
         if not os.path.exists(tem_path):
             print("NOT generating features for %s because features don't exist." % video_name)
             continue        
@@ -229,10 +243,11 @@ def generate_features_repr(opt, video_list, video_dict):
 
         print('Doing %s with paths %s and %s' % (video_name, tem_path, proposals_path))
         
-        score_action = bookend_zeros(adf.action.values[:], 20)
-        score_end = bookend_zeros(adf.end.values[:], 20)
-        score_start = bookend_zeros(adf.start.values[:], 20)
-        snippets = [5*i - 87 for i in range(20)] + list(adf.frames.values[:]) + [5*i + 5 + adf.frames.values[:][-1] for i in range(20)]
+        score_action = bookend_zeros(adf.action.values[:], bookend_num)
+        score_end = bookend_zeros(adf.end.values[:], bookend_num)
+        score_start = bookend_zeros(adf.start.values[:], bookend_num)
+        # 
+        snippets = [skip_videoframes*i - normalizer for i in range(bookend_num)] + list(adf.frames.values[:]) + [skip_videoframes*i + skip_videoframes + adf.frames.values[:][-1] for i in range(bookend_num)]
         print('Computing the interp1ds')
         f_action = interp1d(snippets, score_action, axis=0)
         f_start = interp1d(snippets, score_start, axis=0)
@@ -328,11 +343,6 @@ def PGM_proposal_generation(opt):
 
 
 def PGM_feature_generation(opt):
-    model = opt['tem_results_dir'].split('/')[-1]
-    features_dir = os.path.join(opt['pgm_features_dir'], model)
-    if not os.path.exists(features_dir):
-        os.makedirs(features_dir)
-    
     video_dict = getDatasetDict(opt)
     video_list = sorted(video_dict.keys())
     # NOTE: change this back.

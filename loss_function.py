@@ -90,9 +90,9 @@ def PEM_loss_function(anchors_iou, match_iou, opt):
 
     iou_weights = u_hmask + u_smmask + u_slmask
     iou_loss = F.smooth_l1_loss(anchors_iou, match_iou.squeeze())
-    print('LOSS')
-    print(iou_loss.shape, iou_weights.shape)
-    print(iou_weights)
+    # print('LOSS')
+    # print(iou_loss.shape, iou_weights.shape)
+    # print(iou_weights)
     iou_loss = torch.sum(iou_loss * iou_weights) / (1e-6 + torch.sum(iou_weights))
 
     return {'iou_loss': iou_loss}

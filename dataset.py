@@ -490,6 +490,7 @@ class ProposalSampler(data.WeightedRandomSampler):
                 
             if percent < max_zero_weight:
                 # We don't care if there aren't many zeros.
+                weights.append(1)
                 continue
 
             # Otherwise, we roughly want there to be 10% zeros at most.
@@ -525,8 +526,6 @@ class ProposalDataSet(data.Dataset):
     def _exists(self, video_name):
         pgm_proposals_path = os.path.join(self.opt['pgm_proposals_dir'], '%s.proposals.csv' % video_name)
         pgm_features_path = os.path.join(self.opt['pgm_features_dir'], '%s.features.npy' % video_name)
-        print(pgm_proposals_path)
-        print(pgm_features_path)
         return os.path.exists(pgm_proposals_path) and os.path.exists(pgm_features_path)
         
     def _getDatasetDict(self):
@@ -536,16 +535,18 @@ class ProposalDataSet(data.Dataset):
         for i in range(len(anno_df)):
             video_name = anno_df.video.values[i]
             video_info = anno_database[video_name]
-            video_subset = anno_df.subset.values[i]
+            
+            if 'thumos' in self.opt['dataset']:
+                video_subset = video_name.split('_')[1].replace('validation', 'train')
+            else:
+                video_subset = anno_df.subset.values[i]
+                
             if self.subset == "full":
                 self.video_dict[video_name] = video_info
             if self.subset in video_subset:
                 self.video_dict[video_name] = video_info
         self.video_list = sorted(self.video_dict.keys())
         self.video_list = [k for k in self.video_list if self._exists(k)]
-        print('\n***\n')
-        print(self.subset)
-        print(self.video_list)
 
         if self.opt['pem_do_index']:
             self.features = {}
@@ -554,15 +555,19 @@ class ProposalDataSet(data.Dataset):
             for video_name in self.video_list:
                 pgm_proposals_path = os.path.join(self.opt['pgm_proposals_dir'], '%s.proposals.csv' % video_name)
                 pgm_features_path = os.path.join(self.opt['pgm_features_dir'], '%s.features.npy' % video_name)
-                pdf = pd.read_csv(pgm_proposals_path)
-                pdf = pdf.sort_values(by="score", ascending=False)
+                pdf = pd.read_csv(pgm_proposals_path)                    
                 video_feature = np.load(pgm_features_path)
-                video_feature = video_feature[pdf[:self.top_K].index]
                 pre_count = len(pdf)
-                pdf = pdf[:self.top_K]
-                print(video_name, pre_count, len(pdf), video_feature.shape)
-                print('Num zeros in match_iou: ', len(pdf[pdf.match_iou == 0]))
-                print('')
+                if self.top_K is not None:
+                    try:
+                        pdf = pdf.sort_values(by="score", ascending=False)
+                    except KeyError:
+                        pdf['score'] = pdf.xmin_score * pdf.xmax_score
+                        pdf = pdf.sort_values(by="score", ascending=False)
+                    pdf = pdf[:self.top_K]
+                    video_feature = video_feature[pdf.index]
+                    
+                print(video_name, pre_count, len(pdf), video_feature.shape, pgm_proposals_path, pgm_features_path)
                 self.proposals[video_name] = pdf
                 self.features[video_name] = video_feature
                 self.indices.extend([(video_name, i) for i in range(len(pdf))])
@@ -600,10 +605,11 @@ class ProposalDataSet(data.Dataset):
             # ***
             pdf = pdf.sort_values(by="score", ascending=False)
             # ***
-            pdf = pdf[:self.top_K]
-            
             video_feature = np.load(pgm_features_path)
-            video_feature = video_feature[:self.top_K, :]
+            if self.top_K is not None:
+                pdf = pdf[:self.top_K]
+                video_feature = video_feature[:self.top_K, :]
+                
             video_feature = torch.Tensor(video_feature)
 
             if self.mode == "train":

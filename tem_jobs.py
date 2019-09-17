@@ -213,7 +213,7 @@ def run(find_counter=None):
                         # func(_job, counter, email, code_directory)
 
 
-    print("Counter: ", counter)
+    # print("Counter: ", counter)
     job = {
         'name': '2019.09.06',
         'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations',
@@ -250,7 +250,7 @@ def run(find_counter=None):
                             #     func(_job, counter, email, code_directory)
 
 
-    print("Counter: ", counter) # 184.
+    # print("Counter: ", counter) # 184.
     # The jobs below are trying to dupliacte the TEM settings from the paper.
     job = {
         'name': '2019.09.10',
@@ -284,7 +284,7 @@ def run(find_counter=None):
                 #     func(_job, counter, email, code_directory)
 
 
-    print("Counter: ", counter)  # 200
+    # print("Counter: ", counter)  # 200
     # The jobs below are trying to do ThumosImages w CorrFlow.
     # They use the representation change.
     job = {
@@ -324,7 +324,7 @@ def run(find_counter=None):
                         #     func(_job, counter, email, code_directory)
 
 
-    print("Counter: ", counter)   # 248
+    # print("Counter: ", counter)   # 248
     # The jobs below are trying to do ThumosImages w CorrFlow.
     # They however use the FULL representation from CF, which has
     # a size of 225280. Need to reduce the batch size to match.
@@ -365,7 +365,7 @@ def run(find_counter=None):
                         # elif not find_counter:
                         #     func(_job, counter, email, code_directory)
 
-    print("Counter: ", counter)   # 296
+    # print("Counter: ", counter)   # 296
     # The jobs below are trying to do ThumosImages w CorrFlow.
     # They use the representation change.
     job = {
@@ -405,7 +405,7 @@ def run(find_counter=None):
                         #     func(_job, counter, email, code_directory)
                         
 
-    print("Counter: ", counter)  # 332
+    # print("Counter: ", counter)  # 332
     # The jobs below are trying to do ThumosImages w CorrFlow.
     # They however use the FULL representation from CF, which has
     # a size of 225280. Need to reduce the batch size to match.
@@ -446,7 +446,7 @@ def run(find_counter=None):
                         #     func(_job, counter, email, code_directory)
 
 
-    print("Counter: ", counter)  # 368
+    # print("Counter: ", counter)  # 368
     job = {
         'name': '2019.09.15',
         'video_anno': os.path.join(anno_directory, 'anno_fps12.on.sep052019.json'),
@@ -488,8 +488,8 @@ def run(find_counter=None):
                             if find_counter == counter:
                                 return _job
                             
-                            if not find_counter:
-                                func(_job, counter, email, code_directory)
+                            # if not find_counter:
+                            #     func(_job, counter, email, code_directory)
 
                         
 if __name__ == '__main__':

@@ -23,16 +23,22 @@ regex = re.compile('.*(\d{5}).*')
 
 for tem_results_subdir in os.listdir(tem_results_dir):
     counter = int(regex.match(tem_results_subdir).groups()[0])
+    if counter in [301]:
+        continue
+    
+    print(tem_results_dir, tem_results_subdir, counter)
     job = run(find_counter=counter)
 
     name = job['name']
     for ckpt_subdir in os.listdir(os.path.join(tem_results_dir, tem_results_subdir)):
         _job = deepcopy(job)
+        if 'thumos' in _job['dataset']:
+            _job['video_anno'] = os.path.join(_job['video_info'], 'thumos_anno_action.json')
         _job['num_gpus'] = 0
         _job['num_cpus'] = 48
         _job['pgm_thread'] = 40
         _job['gb'] = 64
-        _job['time'] = 6 # what time should this be?
+        _job['time'] = 5 # how long?
         _job['tem_results_dir'] = os.path.join(tem_results_dir, tem_results_subdir, ckpt_subdir)
         
         propdir = os.path.join(pgm_proposals_dir, tem_results_subdir, ckpt_subdir)
