@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-import numpy as np
-import pandas as pd
 import json
 import multiprocessing as mp
+import numpy as np
+import os
+import pandas as pd
 
 
 def load_json(file):
@@ -11,10 +12,9 @@ def load_json(file):
         return data
 
 
-def getDatasetDict(opt):
+def get_dataset_dict(opt):
     df = pd.read_csv(opt["video_info"])
-    json_data = load_json(opt["video_anno"])
-    database = json_data
+    database = load_json(opt["video_anno"])
     video_dict = {}
     for i in range(len(df)):
         video_name = df.video.values[i]
@@ -23,9 +23,15 @@ def getDatasetDict(opt):
         video_new_info['duration_frame'] = video_info['duration_frame']
         video_new_info['duration_second'] = video_info['duration_second']
         video_new_info["feature_frame"] = video_info['feature_frame']
-        video_subset = df.subset.values[i]
+
+        if 'thumos' in opt['dataset']:
+            video_subset = video_name.split('_')[1].replace('validation', 'train')
+        else:
+            video_subset = df.subset.values[i]
+
+        print(video_subset, opt['pem_inference_subset'])
         video_new_info['annotations'] = video_info['annotations']
-        if video_subset == opt["pem_inference_subset"]:
+        if opt["pem_inference_subset"] == 'full' or video_subset == opt["pem_inference_subset"]:
             video_dict[video_name] = video_new_info
     return video_dict
 
@@ -43,7 +49,11 @@ def iou_with_anchors(anchors_min, anchors_max, len_anchors, box_min, box_max):
 
 
 def Soft_NMS(df, opt):
-    df = df.sort_values(by="score", ascending=False)
+    try:
+        df = df.sort_values(by="score", ascending=False)
+    except KeyError:
+        df['score'] = df.xmin_score * df.xmax_score
+        df = df.sort_values(by="score", ascending=False)
 
     tstart = list(df.xmin.values[:])
     tend = list(df.xmax.values[:])
@@ -81,9 +91,14 @@ def Soft_NMS(df, opt):
 
 
 def video_post_process(opt, video_list, video_dict):
-
+    pem_inference_results = opt['pem_inference_results_dir']
     for video_name in video_list:
-        df = pd.read_csv("./output/PEM_results/" + video_name + ".csv")
+        try:
+            df = pd.read_csv(os.path.join(pem_inference_results, video_name + ".csv"))
+        except FileNotFoundError as e:
+            print("Nothing for this video ... %s" % video_name)
+            result_dict[video_name[2:]] = []
+            continue
 
         df['score'] = df.iou_score.values[:] * df.xmin_score.values[:] * df.xmax_score.values[:]
         if len(df) > 1:
@@ -108,15 +123,16 @@ def video_post_process(opt, video_list, video_dict):
 
 
 def BSN_post_processing(opt):
-    video_dict = getDatasetDict(opt)
-    video_list = video_dict.keys()  #[:100]
+    video_dict = get_dataset_dict(opt)
+    video_list = sorted(video_dict.keys())  #[:100]
     global result_dict
     result_dict = mp.Manager().dict()
 
     num_videos = len(video_list)
-    num_videos_per_thread = num_videos / opt["post_process_thread"]
+    num_threads = min(num_videos, opt['post_process_thread'])
+    num_videos_per_thread = int(num_videos / num_threads)
     processes = []
-    for tid in range(opt["post_process_thread"] - 1):
+    for tid in range(num_threads - 1):
         tmp_video_list = video_list[tid * num_videos_per_thread:(tid + 1) *
                                     num_videos_per_thread]
         p = mp.Process(target=video_post_process,
@@ -127,7 +143,7 @@ def BSN_post_processing(opt):
                        ))
         p.start()
         processes.append(p)
-    tmp_video_list = video_list[(opt["pgm_thread"] - 1) *
+    tmp_video_list = video_list[(num_threads - 1) *
                                 num_videos_per_thread:]
     p = mp.Process(target=video_post_process,
                    args=(
@@ -146,9 +162,13 @@ def BSN_post_processing(opt):
         "results": result_dict,
         "external_data": {}
     }
-    outfile = open(opt["result_file"], "w")
-    json.dump(output_dict, outfile)
-    outfile.close()
+    output_dir = opt['postprocessed_results_dir']
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+    
+    outfile = os.path.join(output_dir, 'result.json')
+    with open(outfile, 'w') as f:
+        json.dump(output_dict, f)
 
 
 #opt = opts.parse_opt()

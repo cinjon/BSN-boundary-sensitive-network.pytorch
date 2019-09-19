@@ -103,13 +103,14 @@ def parse_opt():
     parser.add_argument('--soft_nms_alpha', type=float, default=0.75)
     parser.add_argument('--soft_nms_low_thres', type=float, default=0.65)
     parser.add_argument('--soft_nms_high_thres', type=float, default=0.9)
-    parser.add_argument('--result_file',
+    parser.add_argument('--postprocessed_results_dir',
                         type=str,
-                        default="./output/result_proposal.json")
+                        default="/checkpoint/cinjon/spaceofmotion/bsn/postprocessing")
     parser.add_argument('--save_fig_path',
                         type=str,
                         default="./output/evaluation_result.jpg")
 
+    parser.add_argument('--do_augment', action='store_true')
     parser.add_argument('--do_representation', action='store_true')
     parser.add_argument('--do_feat_conversion', action='store_true')
     parser.add_argument(

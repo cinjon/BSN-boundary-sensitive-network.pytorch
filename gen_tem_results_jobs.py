@@ -13,7 +13,7 @@ from tem_jobs import run
 
 email = 'cinjon@nyu.edu'
 code_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch'
-# anno_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations'
+
 base_dir = '/checkpoint/cinjon/spaceofmotion/bsn'
 tem_dir = os.path.join(base_dir, 'teminf')
 tem_results_dir = os.path.join(tem_dir, 'results')
@@ -22,9 +22,6 @@ if not os.path.exists(tem_results_dir):
 ckpt_directory = os.path.join(tem_dir, 'do_ckpts')
 
 regex = re.compile('.*(\d{5}).*')
-
-now = datetime.datetime.now()
-print(now)
 
 for ckpt_subdir in os.listdir(ckpt_directory):
     counter = int(regex.match(ckpt_subdir).groups()[0])

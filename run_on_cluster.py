@@ -84,8 +84,14 @@ def _run_batch(job,
     elif job['module'] == 'PEM':
         if job['mode'] == 'train':
             jobname = "pemtr.%s" % job['name']
+        elif job['mode'] == 'inference':
+            jobname = "peminf.%s" % job['name']
         else:
             raise
+    elif job['module'] == 'Post_processing':
+        jobname = 'postproc.%s' % job['name']
+    elif job['module'] == 'Evaluation':
+        jobname = 'eval.%s' % job['name']
     else:
         raise        
         

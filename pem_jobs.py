@@ -70,7 +70,7 @@ def run(find_counter=None):
                             for pem_step_size in [10]:
                                 for pem_hidden_dim in [256]:
                                     for pem_max_zero_weight in [0.25, 0.1]:
-                                        for pem_top_K in [1500, None]:
+                                        for pem_top_K in [1500, -1]:
                                             counter += 1
                                             __job = deepcopy(_job)
                                             __job['pem_training_lr'] = pem_training_lr
@@ -83,9 +83,13 @@ def run(find_counter=None):
                                             __job['pem_top_K'] = pem_top_K
                                             __job['pem_top_K_inference'] = pem_top_K
                                             __job['name'] = '%s-%05d' % (_job['name'], counter)
-                                    
+
                                             if not find_counter:
+                                                if pem_top_K > 0:
+                                                    continue
                                                 func(__job, counter, email, code_directory)
+                                            elif counter == find_counter:
+                                                return __job
     print(counter)
     
 if __name__ == '__main__':

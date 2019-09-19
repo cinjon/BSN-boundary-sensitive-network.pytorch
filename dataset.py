@@ -209,6 +209,7 @@ class ThumosFeatures(Thumos):
 class ThumosImages(Thumos):
 
     def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None):
+        self.do_augment = opts['do_augment'] and subset == 'train'
         super(ThumosImages, self).__init__(opt, subset, feature_dirs=None, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)        
 
     def _get_video_data(self, data, index):
@@ -217,7 +218,8 @@ class ThumosImages(Thumos):
         path = os.path.join(self.image_dir, name)
         path = Path(path)
         paths = [path / ('%010.4f.npy' % (i / self.fps)) for i in indices]
-        imgs = [self.img_loading_func(p.absolute()) for p in paths if p.exists()]
+        imgs = [self.img_loading_func(p.absolute(), do_augment=self.do_augment)
+                for p in paths if p.exists()]
         # if len(imgs) < self.window_size:
         #     imgs.extend([np.zeros(imgs[-1].shape) for _ in range(self.window_size - len(imgs))])
             
@@ -275,6 +277,7 @@ class GymnasticsDataSet(data.Dataset):
     def __init__(self, opt, subset="train", img_loading_func=None, overlap_windows=False):
         self.subset = subset
         self.mode = opt["mode"]
+        self.do_augment = opt['do_augment'] and subset == 'train'
         self.img_loading_func = img_loading_func
         self.overlap_windows = overlap_windows
 
@@ -361,7 +364,10 @@ class GymnasticsDataSet(data.Dataset):
             for i in range(start, end, self.skip_videoframes) \
             if i < max_frames
         ]
-        imgs = [self.img_loading_func(p.absolute()) for p in paths]
+
+        imgs = [self.img_loading_func(p.absolute(), do_augment=self.do_augment)
+                for p in paths if p.exists()]
+
         diff = len(list(range(start, end, self.skip_videoframes))) - len(imgs)
         if type(imgs[0]) == np.array:
             if diff > 0:
@@ -558,7 +564,7 @@ class ProposalDataSet(data.Dataset):
                 pdf = pd.read_csv(pgm_proposals_path)                    
                 video_feature = np.load(pgm_features_path)
                 pre_count = len(pdf)
-                if self.top_K is not None:
+                if self.top_K > 0:
                     try:
                         pdf = pdf.sort_values(by="score", ascending=False)
                     except KeyError:
@@ -606,7 +612,7 @@ class ProposalDataSet(data.Dataset):
             pdf = pdf.sort_values(by="score", ascending=False)
             # ***
             video_feature = np.load(pgm_features_path)
-            if self.top_K is not None:
+            if self.top_K > 0:
                 pdf = pdf[:self.top_K]
                 video_feature = video_feature[:self.top_K, :]
                 

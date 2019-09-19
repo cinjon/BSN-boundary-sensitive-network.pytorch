@@ -16,6 +16,7 @@ def r_prep(image, M):
     if h%M != 0: image = image[:-(h%M),]
     return transforms.ToTensor()(image)
 """
+from PIL import Image
 import torch
 import torch.nn as nn
 import torchvision.transforms as transforms
@@ -26,7 +27,16 @@ from .submodule import ResNet18
 import numpy as np
 
 
-def img_loading_func(path):
+def rgb_preprocess_jitter(image):
+    # image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+    image = (image * 255).astype(np.uint8)
+    image = Image.fromarray(image)
+    image = transforms.ColorJitter(0.1,0.1,0.1,0.1)(image)
+    image = transforms.ToTensor()(image)
+    return image
+
+                        
+def img_loading_func(path, do_augment=False):
     # This should output RGB.
     img = np.load(path) / 255.
     img = img.astype(np.float32)
@@ -35,7 +45,11 @@ def img_loading_func(path):
     h, w = img.shape[0], img.shape[1]
     if w % M != 0: img = img[:, :-(w % M)]
     if h % M != 0: img = img[:-(h % M),]
-    return transforms.ToTensor()(img)
+    r = np.random.random()
+    # The random was originally 0.1. 
+    if not do_augment or np.random.random() > 0.1:
+        return transforms.ToTensor()(img)
+    return rgb_preprocess_jitter(img)
 
 
 class Model(nn.Module):

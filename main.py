@@ -17,7 +17,9 @@ from loss_function import TEM_loss_function, PEM_loss_function
 import pandas as pd
 from pgm import PGM_proposal_generation, PGM_feature_generation
 from post_processing import BSN_post_processing
+from post_processing2 import BSN_post_processing as BSN_post_processing2
 from eval import evaluation_proposal
+from eval2 import evaluation_proposal as evaluation_proposal2
 
 
 def get_lr(optimizer):
@@ -522,19 +524,29 @@ def BSN_inference_TEM(opt):
              
 
 def BSN_inference_PEM(opt):
-    model = PEM(opt)
-    checkpoint = torch.load(opt["checkpoint_path"] + "/pem_best.pth.tar")
+    output_dir = os.path.join(opt['pem_inference_results_dir'], opt['checkpoint_path'].split('/')[-1])
+    checkpoint_epoch = opt['checkpoint_epoch']
+    if checkpoint_epoch is not None:
+        checkpoint_path = os.path.join(opt['checkpoint_path'], 'pem_checkpoint.%d.pth' % checkpoint_epoch)
+        output_dir = os.path.join(output_dir, 'ckpt.%d' % checkpoint_epoch)
+    else:
+        checkpoint_path = os.path.join(opt['checkpoint_path'], 'pem_best.pth')
+        output_dir = os.path.join(output_dir, 'ckpt.best')
+
+    print('Checkpoint path is ', checkpoint_path)
+    checkpoint = torch.load(checkpoint_path)
     base_dict = {
         '.'.join(k.split('.')[1:]): v
         for k, v in list(checkpoint['state_dict'].items())
     }
+
+    model = PEM(opt)
     model.load_state_dict(base_dict)
     model = torch.nn.DataParallel(model).cuda()
     model.eval()
 
-    save_dir = os.path.join(opt['pem_inference_results_dir'], opt['checkpoint_path'].split('/')[-1])
-    if not os.path.exists(save_dir):
-        os.makedirs(save_dir)
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
         
     test_loader = torch.utils.data.DataLoader(
         ProposalDataSet(opt, subset=opt["pem_inference_subset"]),
@@ -565,21 +577,21 @@ def BSN_inference_PEM(opt):
                 print('Changing from video %s to video %s: %d' % (current_video, video, full_idx))
                 video_result = np.stack(current_data, axis=1)
                 video_df = pd.DataFrame(video_result, columns=columns)
-                path = os.path.join(save_dir, '%s.csv' % current_video)
+                path = os.path.join(output_dir, '%s.csv' % current_video)
                 video_df.to_csv(path, index=False)
                 current_video = video
                 current_data = [[] for _ in range(len(columns))]
-                
+
             current_data[0].append(video_xmin[batch_idx])
-            current_data[1].extend(video_xmax[batch_idx])
-            current_data[2].extend(video_xmin_score[batch_idx])
-            current_data[3].extend(video_xmax_score[batch_idx])
-            current_data[4].extend(video_conf[batch_idx])
+            current_data[1].append(video_xmax[batch_idx])
+            current_data[2].append(video_xmin_score[batch_idx])
+            current_data[3].append(video_xmax_score[batch_idx])
+            current_data[4].append(video_conf[batch_idx])
 
     if current_data[0]:
         video_result = np.stack(current_data, axis=1)
         video_df = pd.DataFrame(video_result, columns=columns)
-        path = os.path.join(save_dir, '%s.csv' % current_video)
+        path = os.path.join(output_dir, '%s.csv' % current_video)
         video_df.to_csv(path, index=False)
 
         
@@ -635,11 +647,11 @@ def main(opt):
 
     elif opt["module"] == "Post_processing":
         print("Post processing start")
-        BSN_post_processing(opt)
+        BSN_post_processing2(opt)
         print("Post processing finished")
 
     elif opt["module"] == "Evaluation":
-        evaluation_proposal(opt)
+        evaluation_proposal2(opt)
     print("")
 
 

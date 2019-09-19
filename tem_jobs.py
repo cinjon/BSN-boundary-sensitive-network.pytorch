@@ -13,6 +13,8 @@ import sys
 
 from run_on_cluster import fb_run_batch
 
+base_dir = '/checkpoint/cinjon/spaceofmotion/bsn'
+checkpoint_path = os.path.join(base_dir, 'checkpoint', 'tem')
 email = 'cinjon@nyu.edu'
 code_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch'
 anno_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations'
@@ -447,6 +449,7 @@ def run(find_counter=None):
 
 
     # print("Counter: ", counter)  # 368
+    # These are doing the full gymnastics dataset.
     job = {
         'name': '2019.09.15',
         'video_anno': os.path.join(anno_directory, 'anno_fps12.on.sep052019.json'),
@@ -465,13 +468,14 @@ def run(find_counter=None):
         'do_representation': True,
         'representation_module': 'corrflow',
         'representation_checkpoint': '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth',
+        'checkpoint_path': checkpoint_path
     }
-    for num_run in range(2):
+    for num_rumn in range(2):
         for do_feat_conversion in [False, True]:
             for tem_step_gamma in [0.75, 0.5]:
                 for tem_step_size in [10, 8]:
                     for num_gpus in [8]:
-                        for lr in [1e-4, 3e-4, 1e-3]:
+                        for lr in [1e-4, 3e-4]:
                             counter += 1                        
                             _job = {k: v for k, v in job.items()}
                             _job['num_gpus'] = num_gpus
@@ -483,7 +487,7 @@ def run(find_counter=None):
                             _job['gb'] = 64 * num_gpus
                             _job['tem_batch_size'] = 4 if do_feat_conversion else 1
                             _job['do_feat_conversion'] = do_feat_conversion
-                            _job['time'] = 3.5 if num_run == 0 else 14
+                            _job['time'] = 16 if do_feat_conversion else 24
                             
                             if find_counter == counter:
                                 return _job
@@ -491,6 +495,60 @@ def run(find_counter=None):
                             # if not find_counter:
                             #     func(_job, counter, email, code_directory)
 
+
+    # print("Counter: ", counter)  # 368
+    # These are doing the full gymnastics dataset, but with augmentation.
+    # We skip the non- augment ones that are on do_feat_conversion because those were done before.
+    # The others were also done above but did not go for enough epochs because they take a while.
+    job = {
+        'name': '2019.09.17',
+        'video_anno': os.path.join(anno_directory, 'anno_fps12.on.sep052019.json'),
+        'video_info': os.path.join(anno_directory, 'video_info.sep052019.fps12.csv'),
+        'do_representation': True,
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 10,
+        'num_videoframes': 100,
+        'skip_videoframes': 2,
+        'tem_batch_size': 4,
+        'tem_step_size': 10,
+        'tem_step_gamma': 0.5,
+        'tem_epoch': 30,
+        'tem_train_subset': 'train',
+        'do_representation': True,
+        'representation_module': 'corrflow',
+        'representation_checkpoint': '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth',
+        'checkpoint_path': checkpoint_path
+    }
+    for do_augment in [True, False]:
+        for do_feat_conversion in [False, True]:
+            for tem_step_gamma in [0.75, 0.5]:
+                for tem_step_size in [10, 8]:
+                    for num_gpus in [8]:
+                        for lr in [1e-4, 3e-4]:
+                            if not do_augment and do_feat_conversion:
+                                continue
+                            counter += 1
+                            
+                            _job = {k: v for k, v in job.items()}
+                            _job['num_gpus'] = num_gpus
+                            _job['tem_training_lr'] = lr
+                            _job['tem_step_gamma'] = tem_step_gamma
+                            _job['tem_step_size'] = tem_step_size
+                            _job['name'] = '%s-%05d' % (_job['name'], counter)
+                            _job['num_cpus'] = num_gpus * 10
+                            _job['gb'] = 64 * num_gpus
+                            _job['tem_batch_size'] = 4 if do_feat_conversion else 1
+                            _job['do_feat_conversion'] = do_feat_conversion
+                            _job['do_augment'] = do_augment
+                            _job['time'] = 16 if do_feat_conversion else 24
+                            
+                            if find_counter == counter:
+                                return _job
+                            
+                            if not find_counter:
+                                func(_job, counter, email, code_directory)
+                                
                         
 if __name__ == '__main__':
     run()
