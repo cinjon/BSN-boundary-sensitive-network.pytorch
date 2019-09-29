@@ -40,7 +40,8 @@ def parse_opt():
     # TEM model settings
     parser.add_argument('--tem_feat_dim', type=int, default=400)
     parser.add_argument('--tem_hidden_dim', type=int, default=512)
-    parser.add_argument('--tem_nonlinear_factor', type=int, default=0.01)
+    parser.add_argument('--tem_nonlinear_factor', type=float, default=0.01)
+    parser.add_argument('--tem_reset_params', action='store_true')
 
     # PEM model settings
     parser.add_argument('--pem_feat_dim', type=int, default=32)
@@ -48,11 +49,12 @@ def parse_opt():
 
     # TEM Training settings
     parser.add_argument('--tem_training_lr', type=float, default=0.001)
-    parser.add_argument('--tem_weight_decay', type=float, default=0.0001)
-    parser.add_argument('--tem_lr_penalty', type=float, default=0.0)
+    parser.add_argument('--tem_weight_decay', type=float, default=0.0)
+    parser.add_argument('--tem_l2_loss', type=float, default=0.005)
     parser.add_argument('--tem_epoch', type=int, default=30) # NOTE: was 20
     parser.add_argument('--tem_step_size', type=int, default=7)
     parser.add_argument('--tem_step_gamma', type=float, default=0.1) # 0.1
+    parser.add_argument('--tem_lr_milestones', type=str, default='5') 
     parser.add_argument('--tem_batch_size', type=int, default=16)
     parser.add_argument('--tem_match_thres', type=float, default=0.5)
     parser.add_argument('--tem_compute_loss_interval', type=float, default=20)    
@@ -64,6 +66,7 @@ def parse_opt():
     parser.add_argument('--pem_nonlinear_factor', type=int, default=0.1)
     parser.add_argument('--pem_training_lr', type=float, default=0.01)
     parser.add_argument('--pem_weight_decay', type=float, default=0.00001)
+    parser.add_argument('--pem_l2_loss', type=float, default=0.000025)    
     parser.add_argument('--pem_epoch', type=int, default=20)
     parser.add_argument('--pem_step_size', type=int, default=10)
     parser.add_argument('--pem_step_gamma', type=float, default=0.1)
@@ -100,6 +103,7 @@ def parse_opt():
     # Post processing
     parser.add_argument('--post_process_top_K', type=int, default=100)
     parser.add_argument('--post_process_thread', type=int, default=8)
+    parser.add_argument('--do_eval_after_postprocessing', action='store_true')    
     parser.add_argument('--soft_nms_alpha', type=float, default=0.75)
     parser.add_argument('--soft_nms_low_thres', type=float, default=0.65)
     parser.add_argument('--soft_nms_high_thres', type=float, default=0.9)

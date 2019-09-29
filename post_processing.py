@@ -107,7 +107,7 @@ def video_post_process(opt, video_list, video_dict):
         df = df.sort_values(by="score", ascending=False)
         video_info = video_dict[video_name]
         video_duration = float(
-            video_info["duration_frame"] / 16 *
+            video_intfo["duration_frame"] / 16 *
             16) / video_info["duration_frame"] * video_info["duration_second"]
         proposal_list = []
 

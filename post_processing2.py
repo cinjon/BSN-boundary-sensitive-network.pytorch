@@ -102,7 +102,7 @@ def BSN_post_processing(opt):
     pem_inference_results = opt['pem_inference_results_dir']
     for num, video_name in enumerate(videoNameList):
         if num % 25 == 0:
-            print(num, len(videoNameList), name)
+            print(num, len(videoNameList), video_name)
         videoAnno = annoDf[annoDf["video-name"] == video_name]
         videoFrame = videoAnno["video-frames"].values[0]
         try:
@@ -130,5 +130,9 @@ def BSN_post_processing(opt):
     output_dir = opt['postprocessed_results_dir']
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
-    outfile = os.path.join(output_dir, 'thumos14_results.csv')
+
+    if 'thumos' in opt['dataset']:
+        outfile = os.path.join(output_dir, 'thumos14_results.csv')        
+    elif 'gymnastics' in opt['dataset']:
+        outfile = os.path.join(output_dir, 'gym_results.csv')        
     outDf.to_csv(outfile, index=False)

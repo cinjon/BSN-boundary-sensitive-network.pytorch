@@ -65,11 +65,16 @@ def generate_proposals(opt, video_list, video_data):
             print('Skipping %s because %s is not a path.' % (video_name, results_path))
             skipped_paths.append(results_path)
             continue
+
+        anno_df_ = anno_df[anno_df.video == video_name]
         
         tdf = pd.read_csv(results_path)
         start_scores = tdf.start.values[:]
         end_scores = tdf.end.values[:]
-        frame_list = tdf.frames.values[:]
+        try:
+            frame_list = tdf.frames.values[:]
+        except Exception as e:
+            frame_list = tdf.frame.values[:]
 
         start_bins = np.zeros(len(start_scores))
         start_bins[[0, -1]] = 1
@@ -95,7 +100,7 @@ def generate_proposals(opt, video_list, video_data):
         xmin_score_list = []
         xmax_list = []
         xmax_score_list = []
-        for index in range(len(start_bins)):
+        for index in range(len(start_scores)):
             if start_bins[index] == 1:
                 xmin_list.append(int(frame_list[index]))
                 xmin_score_list.append(start_scores[index])
@@ -103,7 +108,6 @@ def generate_proposals(opt, video_list, video_data):
                 xmax_list.append(int(frame_list[index]))
                 xmax_score_list.append(end_scores[index])
 
-        print('Doing new_props')
         new_props = []
         for ii in range(len(xmax_list)):
             if ii % 5000 == 0:
@@ -133,7 +137,6 @@ def generate_proposals(opt, video_list, video_data):
         # print('saving preliminary to %s' % path)
         # new_df.to_csv(path, index=False)
         
-        print('Doing gt max')
         if video_dict is not None:
             video_info = video_dict[video_name]
             video_fps = video_info['fps']
@@ -146,25 +149,29 @@ def generate_proposals(opt, video_list, video_data):
 
                 gt_xmins.append(annos[idx]["segment"][0] * video_fps)
                 gt_xmaxs.append(annos[idx]["segment"][1] * video_fps)
-        elif anno_df is not None:
-            gt_xmins = anno_df.startFrame.values[:]
-            gt_xmaxs = anno_df.endFrame.values[:]
-            
-        print('GT Xmins and Xmaxs')
+        elif anno_df_ is not None:
+            gt_xmins = anno_df_.startFrame.values[:]
+            gt_xmaxs = anno_df_.endFrame.values[:]
+
+        # Ok, so all of these gt_xmins and gt_xmaxs are the same ...
+        # ... As are the xmin and xmax values in the DFs.
+        
         new_iou_list = []
         match_xmin_list = []
         match_xmax_list = []
-        print('Doing iou and xmin lists.')        
         for j in range(len(new_df)):
             tmp_new_iou = list(
-                iou_with_anchors(new_df.xmin.values[j],
-                                 new_df.xmax.values[j], gt_xmins, gt_xmaxs))
+                iou_with_anchors(
+                    new_df.xmin.values[j],
+                    new_df.xmax.values[j],
+                    gt_xmins,
+                    gt_xmaxs)
+            )
             new_iou_list.append(max(tmp_new_iou))
             match_xmin_list.append(gt_xmins[tmp_new_iou.index(max(tmp_new_iou))])
             match_xmax_list.append(gt_xmaxs[tmp_new_iou.index(max(tmp_new_iou))])
 
         new_ioa_list = []
-        print('Doing ioa max')        
         for j in range(len(new_df)):
             tmp_new_ioa = max(
                 ioa_with_anchors(new_df.xmin.values[j],
@@ -179,8 +186,7 @@ def generate_proposals(opt, video_list, video_data):
         print('saving to %s' % path)
         new_df.to_csv(path, index=False)
         print('Video %s took %.4f time' % (video_name, time.time() - start_time))
-    print('Total time was %.4f' % (time.time() - start_time))
-    print(skipped_paths)
+    print('Total time was %.4f' % (time.time() - start_time), skipped_paths)
 
 
 def getDatasetDict(opt):
@@ -211,11 +217,10 @@ def bookend_zeros(arr, num):
     return np.concatenate([np.zeros([num]), arr, np.zeros([num])])
 
     
-def generate_features_repr(opt, video_list, video_dict):
+def generate_features(opt, video_list, video_dict):
     num_sample_start = opt["num_sample_start"]
     num_sample_end = opt["num_sample_end"]
     num_sample_action = opt["num_sample_action"]
-    num_sample_interpld = opt["num_sample_interpld"]
     num_videoframes = opt["num_videoframes"]
     skip_videoframes = opt["skip_videoframes"]
     bookend_num = int(num_videoframes / skip_videoframes)
@@ -234,6 +239,10 @@ def generate_features_repr(opt, video_list, video_dict):
             print("NOT generating features for %s because features don't exist." % video_name)
             continue        
         adf = pd.read_csv(tem_path)
+        try:
+            adf_frames = adf.frames.values[:]
+        except Exception as e:
+            adf_frames = adf.frame.values[:]
         
         proposals_path = os.path.join(proposals_dir, '%s.proposals.csv' % video_name)
         if not os.path.exists(proposals_path):
@@ -247,7 +256,7 @@ def generate_features_repr(opt, video_list, video_dict):
         score_end = bookend_zeros(adf.end.values[:], bookend_num)
         score_start = bookend_zeros(adf.start.values[:], bookend_num)
         # 
-        snippets = [skip_videoframes*i - normalizer for i in range(bookend_num)] + list(adf.frames.values[:]) + [skip_videoframes*i + skip_videoframes + adf.frames.values[:][-1] for i in range(bookend_num)]
+        snippets = [skip_videoframes*i - normalizer for i in range(bookend_num)] + list(adf_frames) + [skip_videoframes*i + skip_videoframes + adf_frames[-1] for i in range(bookend_num)]
         print('Computing the interp1ds')
         f_action = interp1d(snippets, score_action, axis=0)
         f_start = interp1d(snippets, score_start, axis=0)
@@ -282,7 +291,11 @@ def generate_features_repr(opt, video_list, video_dict):
             
             #action
             plen_action = (xmax - xmin) / (num_sample_action - 1)
-            tmp_x_new = [xmin_0 + plen_action * ii for ii in range(num_sample_action)]
+            
+            # I originall had the following (see xmin_0)
+            # tmp_x_new = [xmin_0 + plen_action * ii for ii in range(num_sample_action)]
+            # But they have this:
+            tmp_x_new = [xmin + plen_action * ii for ii in range(num_sample_action)]            
             tmp_y_new_action = f_action(tmp_x_new)
             tmp_y_new_action = np.reshape(tmp_y_new_action, [-1])
 
@@ -303,6 +316,8 @@ def PGM_proposal_generation(opt):
     if 'thumos' in opt['dataset']:
         video_data = pd.read_csv(os.path.join(opt["video_info"], 'Full_Annotation.csv'))
         video_list = sorted(list(set(video_data.video.values[:])))
+        # video_list = [k for k in video_list if 'video_validation_0000053' in k]
+        # print(video_list)
     else:
         video_data = load_json(opt["video_anno"])
         video_list = sorted(video_data.keys())  #[:199]
@@ -348,7 +363,7 @@ def PGM_feature_generation(opt):
     # NOTE: change this back.
     # video_list = [k for k in video_list if '12.18.18' in k or '12.5.18' in k]
     
-    func = generate_features_repr
+    func = generate_features
     num_videos = len(video_list)
     num_threads = min(num_videos, opt['pgm_thread'])
     num_videos_per_thread = int(num_videos / opt["pgm_thread"])

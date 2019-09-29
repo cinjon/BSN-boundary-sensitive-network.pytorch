@@ -546,9 +546,60 @@ def run(find_counter=None):
                             if find_counter == counter:
                                 return _job
                             
+                            # if not find_counter:
+                            #     func(_job, counter, email, code_directory)
+
+
+    print("Counter: ", counter)  # 424
+    # These are doing the thumos images with augmentation and without, with do_feat_conversion and w/o.
+    # These are important because we beleive this is working properly now based on reproduction.
+    job = {
+        'name': '2019.09.29',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations',
+        'dataset': 'thumosimages',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 1,
+        'tem_epoch': 30,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'representation_module': 'corrflow',
+        'representation_checkpoint': '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth',
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1
+    }
+    for do_augment in [True, False]:
+        for do_feat_conversion in [True, False]:
+            for tem_milestones in ['5,15', '5,20', '10,25']:
+                for tem_step_gamma in [0.1, 0.5]:
+                    for tem_l2_loss in [0.01, 0.005, 0.001]:
+                        for lr in [1e-4, 1e-3]:
+                            counter += 1
+                            _job = {k: v for k, v in job.items()}
+                            
+                            batch_size = 4 if do_feat_conversion else 1
+                            num_gpus = min(int(16 / batch_size), 8)
+                            _job['tem_batch_size'] = batch_size
+                            _job['num_gpus'] = num_gpus
+                            _job['tem_training_lr'] = lr
+                            _job['tem_lr_milestones'] = tem_milestones
+                            _job['name'] = '%s-%05d' % (_job['name'], counter)
+                            _job['num_cpus'] = num_gpus * 10
+                            _job['gb'] = 64 * num_gpus
+                            
+                            _job['do_feat_conversion'] = do_feat_conversion
+                            _job['do_augment'] = do_augment
+                            _job['tem_step_gamma'] = tem_step_gamma
+                            _job['tem_l2_loss'] = tem_l2_loss
+                            _job['time'] = 16 if do_feat_conversion else 24
+                        
+                            if find_counter == counter:
+                                return _job
+                        
                             if not find_counter:
                                 func(_job, counter, email, code_directory)
-                                
+                            
                         
 if __name__ == '__main__':
     run()

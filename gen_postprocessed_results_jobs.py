@@ -27,20 +27,21 @@ num_gpus = 0
 for pem_results_subdir in os.listdir(pem_results_dir):
     counter = int(regex.match(pem_results_subdir).groups()[0])
     job = pemrun(find_counter=counter)
+    job['do_eval_after_postprocessing'] = True
+    job['num_gpus'] = num_gpus
+    job['num_cpus'] = 48
+    job['gb'] = 64
+    job['time'] = 1
+    job['module'] = 'Post_processing'
     
     name = job['name']
     for ckpt_subdir in os.listdir(os.path.join(pem_results_dir, pem_results_subdir)):
         _job = deepcopy(job)
-        _job['module'] = 'Post_processing'
         dirkey = '%s/%s' % (pem_results_subdir, ckpt_subdir)
         _job['postprocessed_results_dir'] = os.path.join(postprocessed_results_dir, dirkey)
         _job['pem_inference_results_dir'] = os.path.join(pem_results_dir, dirkey)
         if 'thumos' in _job['dataset']:
             _job['video_info'] = _job['video_info'].replace('Full_Annotation.csv', 'thumos14_test_groundtruth.csv')
         _job['name'] = '2019.09.18.%s.%s' % (pem_results_subdir, ckpt_subdir)
-        _job['num_gpus'] = num_gpus
-        _job['num_cpus'] = 48
-        _job['gb'] = 64
-        _job['time'] = 4
             
         func(_job, counter, email, code_directory)

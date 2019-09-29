@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+import matplotlib.pyplot as plt
 from scipy.interpolate import interp1d
 import os
 
@@ -119,13 +120,13 @@ def average_recall_vs_nr_proposals(proposals,
         recall[ridx, :] = matches.sum(axis=0) / positives.sum()
         
     # Recall is averaged.
-    recall = recall.mean(axis=0)
+    avg_recall = recall.mean(axis=0)
     
     # Get the average number of proposals per video.
     proposals_per_video = pcn_lst * (
         float(proposals.shape[0]) / video_lst.shape[0])
     
-    return recall, proposals_per_video
+    return recall, avg_recall, proposals_per_video
                 
                 
 def recall_vs_tiou_thresholds(proposals,
@@ -210,14 +211,80 @@ def recall_vs_tiou_thresholds(proposals,
     return recall, tiou_thresholds
             
 
+def plot_metric(opt,
+                average_nr_proposals,
+                average_recall,
+                recall,
+                tiou_thresholds=np.linspace(0.5, 1.0, 11)):
+
+    fn_size = 14
+    plt.figure(num=None, figsize=(12, 8))
+    ax = plt.subplot(1, 1, 1)
+
+    colors = [
+        'k', 'r', 'yellow', 'b', 'c', 'm', 'b', 'pink', 'lawngreen', 'indigo'
+    ]
+    area_under_curve = np.zeros_like(tiou_thresholds)
+    for i in range(recall.shape[0]):
+        area_under_curve[i] = np.trapz(recall[i], average_nr_proposals)
+
+    for idx, tiou in enumerate(tiou_thresholds[::2]):
+        ax.plot(average_nr_proposals,
+                recall[2 * idx, :],
+                color=colors[idx + 1],
+                label="tiou=[" + str(tiou) + "], area=" +
+                str(int(area_under_curve[2 * idx] * 100) / 100.),
+                linewidth=4,
+                linestyle='--',
+                marker=None)
+    # Plots Average Recall vs Average number of proposals.
+    ax.plot(
+        average_nr_proposals,
+        average_recall,
+        color=colors[0],
+        label="tiou = 0.5:0.05:1.0," + " area=" +
+        str(int(np.trapz(average_recall, average_nr_proposals) * 100) / 100.),
+        linewidth=4,
+        linestyle='-',
+        marker=None)
+
+    handles, labels = ax.get_legend_handles_labels()
+    ax.legend([handles[-1]] + handles[:-1], [labels[-1]] + labels[:-1],
+              loc='best')
+
+    plt.ylabel('Average Recall', fontsize=fn_size)
+    plt.xlabel('Average Number of Proposals per Video', fontsize=fn_size)
+    plt.grid(b=True, which="both")
+    plt.ylim([0, 1.0])
+    plt.setp(plt.axes().get_xticklabels(), fontsize=fn_size)
+    plt.setp(plt.axes().get_yticklabels(), fontsize=fn_size)
+    #plt.show()
+    save_path = os.path.join(opt['postprocessed_results_dir'], 'evaluation_result.jpg')
+    plt.savefig(save_path)
+
+    
 def evaluation_proposal(opt):
-    bsn_results = pd.read_csv(os.path.join(opt['postprocessed_results_dir'], 'thumos14_results.csv'))
+    if 'thumos' in opt['dataset']:
+        bsn_results = pd.read_csv(os.path.join(opt['postprocessed_results_dir'], 'thumos14_results.csv'))
+    elif 'gymnastics' in opt['dataset']:
+        bsn_results = pd.read_csv(os.path.join(opt['postprocessed_results_dir'], 'gym_results.csv'))        
     ground_truth = pd.read_csv(opt['video_info'])
     
     # Computes average recall vs average number of proposals.
-    average_recall, average_nr_proposals = average_recall_vs_nr_proposals(
+    recall, average_recall, average_nr_proposals = average_recall_vs_nr_proposals(
         bsn_results, ground_truth)
-
-    print(average_nr_proposals.shape)
+    area_under_curve = np.trapz(average_recall, average_nr_proposals)
     f = interp1d(average_nr_proposals, average_recall, axis=0)
-    print(f(50), f(100), f(200), f(500), f(1000))
+    interp_results = [(k, f(k)) for k in [50, 100, 200, 500, 1000]]
+    interp_str = ', '.join(['%d: %.4f' % (k, v) for k, v in interp_results])
+
+    with open(os.path.join(opt['postprocessed_results_dir'], 'output.txt'), 'w') as f:
+        f.write('[RESULTS] Performance on %s proposal task.\n' % opt['dataset'])
+        f.write('\tArea Under the AR vs AN curve: {}%\n'.format(
+            100. * float(area_under_curve) / average_nr_proposals[-1]))
+        f.write('Interpolation results: %s\n' % interp_str)
+    
+    plot_metric(opt, average_nr_proposals, average_recall, recall)
+
+    
+    
