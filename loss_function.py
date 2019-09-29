@@ -13,8 +13,9 @@ def bi_loss(scores, anchors, opt):
     num_positive = torch.sum(pmask)
     num_entries = len(scores)
     # I made it do the +1 below and the ratio + 1e-6
-    ratio = (num_entries + 1) / (num_positive + 1)
-    ratio += 1e-6
+    # ratio = (num_entries + 1) / (num_positive + 1)
+    # ratio += 1e-6
+    ratio = num_entries / num_positive 
 
     coef_0 = 0.5 * (ratio) / (ratio - 1)
     coef_1 = coef_0 * (ratio - 1)
@@ -93,6 +94,7 @@ def PEM_loss_function(anchors_iou, match_iou, opt):
     # print('LOSS')
     # print(iou_loss.shape, iou_weights.shape)
     # print(iou_weights)
-    iou_loss = torch.sum(iou_loss * iou_weights) / (1e-6 + torch.sum(iou_weights))
+    iou_loss = torch.sum(iou_loss * iou_weights) / torch.sum(iou_weights)
+    # iou_loss = torch.sum(iou_loss * iou_weights) / (1e-6 + torch.sum(iou_weights))
 
     return {'iou_loss': iou_loss}
