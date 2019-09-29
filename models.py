@@ -45,6 +45,7 @@ class TEM(torch.nn.Module):
 
         self.temporal_dim = opt["temporal_scale"]
         self.nonlinear_factor = opt["tem_nonlinear_factor"]
+        print("NONLINEAR: ", self.nonlinear_factor)
         self.batch_size = opt["tem_batch_size"]
         self.num_videoframes = opt["num_videoframes"]
         self.c_hidden = opt["tem_hidden_dim"]
@@ -83,7 +84,8 @@ class TEM(torch.nn.Module):
                                      stride=1,
                                      padding=0)
 
-        self.reset_params()
+        if opt['tem_reset_params']:
+            self.reset_params()
 
     def set_eval_representation(self):
         self.representation_model.eval()
@@ -98,6 +100,7 @@ class TEM(torch.nn.Module):
 
     @staticmethod
     def weight_init(m):
+        print('Doing weight init!!')
         if isinstance(m, nn.Conv1d):
             init.xavier_normal_(m.weight)
             init.constant_(m.bias, 0)
