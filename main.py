@@ -1,3 +1,4 @@
+from collections import defaultdict
 from comet_ml import Experiment as CometExperiment, OfflineExperiment
 import sys
 sys.dont_write_bytecode = True
@@ -43,7 +44,7 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         model.module.set_eval_representation()
         
     count = 1
-    keys = ['action_loss', 'start_loss', 'end_loss', 'total_loss', 'action_l1', 'start_l1', 'end_l1', 'action_positive', 'start_positive', 'end_positive', 'entries']
+    keys = ['action_loss', 'start_loss', 'end_loss', 'total_loss', 'current_l2', 'action_positive', 'start_positive', 'end_positive', 'entries']
     epoch_sums = {k: 0 for k in keys}
     
     if comet_exp:
@@ -53,9 +54,6 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
     start = time.time()
     for n_iter, (input_data, label_action, label_start,
                  label_end) in enumerate(data_loader):
-        if n_iter == 0:
-            print('Training')
-            
         if time.time() - opt['start_time'] > opt['time']*3600 - 10 and comet_exp is not None:
             comet_exp.end()
             sys.exit(-1)
@@ -64,6 +62,11 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         TEM_output = model(input_data)
         loss = TEM_loss_function(label_action, label_start, label_end,
                                  TEM_output, opt)
+        l2 = sum([(W**2).sum() for W in model.module.parameters()])
+        l2 = l2.sum() / 2
+        l2 = opt['tem_l2_loss'] * l2
+        loss['current_l2'] = l2
+        loss['total_loss'] += l2
         total_loss = loss["total_loss"]
         optimizer.zero_grad()
         total_loss.backward()
@@ -72,8 +75,6 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
 
         if n_iter % opt['tem_compute_loss_interval'] == 0:
             epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
-            l2 = sum([W.norm(2) for W in model.module.parameters()]).cpu().detach().numpy()
-            epoch_avg['current_l2'] = l2
                         
             count += 1
             steps_per_second = 0
@@ -81,22 +82,20 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
                 steps_per_second = (n_iter+1) / (time.time() - start)
                 epoch_avg['steps_per_second'] = steps_per_second
             epoch_avg['current_lr'] = get_lr(optimizer)
-            print({k: type(v) for k, v in epoch_avg.items()})
-            print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
-            s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
-            print("TEM avg so far this epoch: %s." % s)
+            # print({k: type(v) for k, v in epoch_avg.items()})
+            # print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
+            # s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
+            # print("TEM avg so far this epoch: %s." % s)
             if comet_exp:
                 with comet_exp.train():
                     comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
 
-    print('Count: ', count)
     epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
-    epoch_avg['current_l2'] = sum([W.norm(2) for W in model.module.parameters()]).cpu().detach().numpy()
-    steps_per_second = (n_iter+1) / (time.time() - start)
-    epoch_avg['steps_per_second'] = steps_per_second
-    print('\n***End of Epoch %d***\nS/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
-    s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
-    print("TEM avg: %s." % s)
+    # steps_per_second = (n_iter+1) / (time.time() - start)
+    # epoch_avg['steps_per_second'] = steps_per_second
+    print('\n***End of Epoch %d***\nLearningRate: %.4f' % (epoch, get_lr(optimizer)), flush=True)
+    s = ", ".join(['%s --> %.6f' % (key.replace('_loss', '').replace('current_', '').capitalize(), epoch_avg[key]) for key in sorted(epoch_avg.keys())])
+    print("Train: %s." % s, flush=True)
     if comet_exp:
         with comet_exp.train():
             comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)                    
@@ -108,7 +107,7 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
 def test_TEM(data_loader, model, epoch, global_step, comet_exp, opt):
     model.eval()
     
-    keys = ['action_loss', 'start_loss', 'end_loss', 'total_loss', 'action_l1', 'start_l1', 'end_l1', 'action_positive', 'start_positive', 'end_positive', 'entries']
+    keys = ['action_loss', 'start_loss', 'end_loss', 'total_loss', 'action_positive', 'start_positive', 'end_positive', 'entries', 'current_l2']
     epoch_sums = {k: 0 for k in keys}
     
     for n_iter, (input_data, label_action, label_start,
@@ -120,22 +119,28 @@ def test_TEM(data_loader, model, epoch, global_step, comet_exp, opt):
         TEM_output = model(input_data)
         loss = TEM_loss_function(label_action, label_start, label_end,
                                  TEM_output, opt)
+        l2 = sum([(W**2).sum() for W in model.module.parameters()])
+        l2 = l2.sum() / 2
+        l2 = opt['tem_l2_loss'] * l2
+        loss['current_l2'] = l2
+        loss['total_loss'] += l2
         for k in keys:
             if k == 'entries':
                 epoch_sums[k] += loss[k]
             else:
                 epoch_sums[k] += loss[k].cpu().detach().numpy()
                 
-        if n_iter % opt['tem_compute_loss_interval'] == 0:
-            print('\nTest - Local Step %d / %d.' % (n_iter, len(data_loader)))
+        # if n_iter % opt['tem_compute_loss_interval'] == 0:
+        #     print('\nTest - Local Step %d / %d.' % (n_iter, len(data_loader)))
 
     epoch_values = {k: v / (n_iter + 1) for k, v in epoch_sums.items()}
     if comet_exp:
         with comet_exp.test():
             comet_exp.log_metrics(epoch_values, step=global_step, epoch=epoch)
 
-    s = ", ".join(['%s --> %.6f' % (k, epoch_values[k]) for k in keys])
-    print("TEM avg test on epoch %d: %s." % (epoch, s))
+    s = ", ".join(['%s --> %.6f' % (key.replace('_loss', '').replace('current_', '').capitalize(), epoch_values[key]) for key in sorted(epoch_values.keys())])
+    print("Test %s." % s, flush=True)
+    
     state = {'epoch': epoch, 'global_step': global_step, 'state_dict': model.state_dict()}
     save_dir = os.path.join(opt["checkpoint_path"], opt['name'])
     if not os.path.exists(save_dir):
@@ -155,7 +160,7 @@ def train_PEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
     model.train()
 
     count = 1
-    keys = ['iou_loss']
+    keys = ['iou_loss', 'current_l2', 'total_loss']
     epoch_sums = {k: 0 for k in keys}
 
     start = time.time()
@@ -166,9 +171,16 @@ def train_PEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
 
         PEM_output = model(input_data)
         loss = PEM_loss_function(PEM_output, label_iou, opt)
+        l2 = sum([(W**2).sum() for W in model.module.parameters()])
+        l2 = l2.sum() / 2
+        l2 = opt['pem_l2_loss'] * l2
+        loss['current_l2'] = l2
+        loss['iou_loss'] *= 10
         iou_loss = loss['iou_loss']
+        total_loss = iou_loss + l2
+        loss['total_loss'] = total_loss
         optimizer.zero_grad()
-        iou_loss.backward()
+        total_loss.backward()
         optimizer.step()
         global_step += 1
         
@@ -180,20 +192,19 @@ def train_PEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
                 steps_per_second = (n_iter+1) / (time.time() - start)
                 epoch_avg['steps_per_second'] = steps_per_second
             epoch_avg['current_lr'] = get_lr(optimizer)
-            print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
-            s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
-            print("PEM avg so far this epoch: %s." % s)
+            # print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
+            # s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
+            # print("PEM avg so far this epoch: %s." % s)
             if comet_exp:
                 with comet_exp.train():
                     comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
 
-    print('Count: ', count)
     epoch_sums, epoch_avg = compute_metrics(epoch_sums, loss, count)
     steps_per_second = (n_iter+1) / (time.time() - start)
-    epoch_avg['steps_per_second'] = steps_per_second
-    print('\n***End of Epoch %d***\nS/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
-    s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
-    print("PEM avg: %s." % s)
+    # epoch_avg['steps_per_second'] = steps_per_second
+    print('\n***End of Epoch %d***\nLearningRate: %.4f' % (epoch, get_lr(optimizer)))
+    s = ", ".join(['%s --> %.6f' % (key.replace('current_', '').replace('_loss', '').capitalize(), epoch_avg[key]) for key in sorted(epoch_avg.keys())])
+    print("Train: %s." % s)
     if comet_exp:
         with comet_exp.train():
             comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
@@ -204,7 +215,7 @@ def train_PEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
 
 def test_PEM(data_loader, model, epoch, global_step, comet_exp, opt):
     model.eval()
-    keys = ['iou_loss']
+    keys = ['iou_loss', 'current_l2', 'total_loss']
     epoch_sums = {k: 0 for k in keys}
     
     for n_iter, (input_data, label_iou) in enumerate(data_loader):
@@ -214,6 +225,14 @@ def test_PEM(data_loader, model, epoch, global_step, comet_exp, opt):
             
         PEM_output = model(input_data)
         loss = PEM_loss_function(PEM_output, label_iou, opt)
+        l2 = sum([(W**2).sum() for W in model.module.parameters()])
+        l2 = l2.sum() / 2
+        l2 = opt['pem_l2_loss'] * l2
+        loss['current_l2'] = l2
+        loss['iou_loss'] *= 10
+        iou_loss = loss['iou_loss']
+        total_loss = iou_loss + l2
+        loss['total_loss'] = total_loss        
         for k in keys:
             epoch_sums[k] += loss[k].cpu().detach().numpy()
             
@@ -222,8 +241,8 @@ def test_PEM(data_loader, model, epoch, global_step, comet_exp, opt):
         with comet_exp.test():
             comet_exp.log_metrics(epoch_values, step=global_step, epoch=epoch)
 
-    s = ", ".join(['%s --> %.06f' % (k, epoch_values[k]) for k in keys])
-    print("PEM avg test on epoch %d: %s." % (epoch, s))
+    s = ", ".join(['%s --> %.06f' % (k.replace('current_', '').replace('_loss', '').capitalize(), epoch_values[k]) for k in sorted(keys)])
+    print("Test: %s." % s)
     state = {'epoch': epoch, 'global_step': global_step, 'state_dict': model.state_dict()}
 
     save_dir = os.path.join(opt["checkpoint_path"], opt['name'])
@@ -260,7 +279,8 @@ def BSN_Train_TEM(opt):
 
     if opt['dataset'] == 'gymnastics':
         img_loading_func = get_img_loader(opt)
-        train_data_set = GymnasticsDataSet(opt, subset=opt['tem_train_subset'], img_loading_func=img_loading_func, overlap_windows=True)
+        train_data_set = GymnasticsDataSet(opt, subset=opt['tem_train_subset'], img_loading_func=img_loading_func,
+                                           overlap_windows=True)
         train_sampler = GymnasticsSampler(train_data_set.video_dict, train_data_set.frame_list)
         test_data_set = GymnasticsDataSet(opt, subset="test", img_loading_func=img_loading_func)
     elif opt['dataset'] == 'thumosfeatures':
@@ -297,9 +317,13 @@ def BSN_Train_TEM(opt):
         pin_memory=True,
         drop_last=False)
 
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                                step_size=opt["tem_step_size"],
-                                                gamma=opt["tem_step_gamma"])
+    if 'thumos' in opt['dataset']:
+        milestones = [int(k) for k in opt['tem_lr_milestones'].split(',')]
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=opt['tem_step_gamma'])
+    else:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+                                                    step_size=opt["tem_step_size"],
+                                                    gamma=opt["tem_step_gamma"])
 
     if opt['log_to_comet']:
         comet_exp = CometExperiment(api_key="hIXq6lDzWzz24zgKv7RYz6blo",
@@ -324,11 +348,11 @@ def BSN_Train_TEM(opt):
         comet_exp.log_parameters(opt)
         comet_exp.set_name(opt['name'])
 
-    for epoch in range(opt["tem_epoch"]):
+    test_TEM(test_loader, model, 0, 0, comet_exp, opt)
+    for epoch in range(1, opt["tem_epoch"] + 1):
         global_step = train_TEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
+        test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)    
         scheduler.step()
-        test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)
-    # test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)        
         
 
 def BSN_Train_PEM(opt):
@@ -369,9 +393,12 @@ def BSN_Train_PEM(opt):
         drop_last=False,
         collate_fn=collate_fn if not opt['pem_do_index'] else None)
 
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                                step_size=opt["pem_step_size"],
-                                                gamma=opt["pem_step_gamma"])
+    if 'thumos' in opt['dataset']:
+        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10], gamma=opt['pem_step_gamma'])
+    else:
+        scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
+                                                    step_size=opt["pem_step_size"],
+                                                    gamma=opt["pem_step_gamma"])
 
     if opt['log_to_comet']:
         comet_exp = CometExperiment(api_key="hIXq6lDzWzz24zgKv7RYz6blo",
@@ -396,11 +423,11 @@ def BSN_Train_PEM(opt):
         comet_exp.log_parameters(opt)
         comet_exp.set_name(opt['name'])    
 
+    test_PEM(test_loader, model, -1, -1, comet_exp, opt)
     for epoch in range(opt["pem_epoch"]):
-        test_PEM(test_loader, model, epoch, global_step, comet_exp, opt)
         global_step = train_PEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
+        test_PEM(test_loader, model, epoch, global_step, comet_exp, opt)
         scheduler.step()
-    test_PEM(test_loader, model, epoch, global_step, comet_exp, opt)
 
 
 def BSN_inference_TEM(opt):
@@ -440,7 +467,7 @@ def BSN_inference_TEM(opt):
         dataset = ThumosImages(
             opt, subset=opt['tem_results_subset'].title(),
             img_loading_func=img_loading_func,
-            image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_%s_tal.30' % opt['tem_results_subset']
+            image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_%s_tal.30' % opt['tem_results_subset'],
         )
                 
     test_loader = torch.utils.data.DataLoader(
@@ -451,11 +478,17 @@ def BSN_inference_TEM(opt):
         pin_memory=True,
         drop_last=False)
 
-    columns = ["action", "start", "end", "xmin", "xmax", "frames"]
-        
+    columns = ["action", "start", "end", "frames"]
+
+    all_vids = defaultdict(int)
     current_video = None
-    current_data = [[] for _ in range(len(columns))]
-    for test_idx, (index_list, input_data, anchor_xmin, anchor_xmax, video, snippets) in enumerate(test_loader):
+    current_start = defaultdict(float)
+    current_end = defaultdict(float)
+    current_action = defaultdict(float)    
+    calc_time_list = defaultdict(int)
+    num_videoframes = opt['num_videoframes']
+    skip_videoframes = opt['skip_videoframes']
+    for test_idx, (index_list, input_data, video_name, snippets) in enumerate(test_loader):
         # The data should be coming back s.t. consecutive data are from the same video.
         # until there is a breakpoint and it starts a new video.
         TEM_output = model(input_data).detach().cpu().numpy()
@@ -464,10 +497,8 @@ def BSN_inference_TEM(opt):
         batch_end = TEM_output[:, 2, :]
         
         index_list = index_list.numpy()
+        print("Size input_data: ", index_list.shape, len(video_name), batch_action.shape)
         for batch_idx, full_idx in enumerate(index_list):
-            curr_anchor_xmin = anchor_xmin[batch_idx].numpy()
-            curr_anchor_xmax = anchor_xmax[batch_idx].numpy()  # np.array([x.numpy()[0] for x in anchor_xmax[full_idx]])
-            
             if 'gymnastics' in opt['dataset']:
                 video, frame = dataset.frame_list[full_idx]
                 if not current_video:
@@ -490,37 +521,64 @@ def BSN_inference_TEM(opt):
                 current_data[0].extend(batch_action[batch_idx])
                 current_data[1].extend(batch_start[batch_idx])
                 current_data[2].extend(batch_end[batch_idx])
-                current_data[3].extend(anchor_xmin)
-                current_data[4].extend(anchor_xmax)
-                current_data[5].extend(list(frames))
+                current_data[3].extend(list(frames))
             else:
-                batch_video = video[batch_idx]
-                batch_snippets = snippets[batch_idx]
+                item_video = video_name[batch_idx]
+                all_vids[item_video] += 1
+                item_snippets = snippets[batch_idx]
                 if not current_video:
-                    print('First video: ', batch_video)
-                    current_video = batch_video
-                    current_data = [[] for _ in range(len(columns))]
-                elif batch_video != current_video:
-                    print('Changing from video %s to video %s (%d / %d / %d)' % (current_video, batch_video, full_idx, batch_idx, test_idx))
-                    video_result = np.stack(current_data, axis=1)
+                    print('First video: ', item_video)
+                    current_video = item_video
+                    current_start = defaultdict(float)
+                    current_end = defaultdict(float)
+                    current_action = defaultdict(float)    
+                    calc_time_list = defaultdict(int)
+                elif item_video != current_video:
+                    column_frames = sorted(calc_time_list.keys())
+                    column_action = [current_action[k] * 1. / calc_time_list[k] for k in column_frames]
+                    column_start = [current_start[k] * 1. / calc_time_list[k] for k in column_frames]
+                    column_end = [current_end[k] * 1. / calc_time_list[k] for k in column_frames]
+                    video_result = np.stack([column_action, column_start, column_end], axis=1)
+                    column_frames = np.reshape(column_frames, [-1, 1])
+                    # print(len(calc_time_list))
+                    # print(np.array(column_action).shape)
+                    # print(np.array(column_start).shape)
+                    # print(np.array(column_end).shape)
+                    # print(column_frames.shape)
+                    # print(video_result.shape)
+
+                    video_result = np.concatenate([video_result, column_frames], axis=1)
                     video_df = pd.DataFrame(video_result, columns=columns)
                     path = os.path.join(output_dir, '%s.csv' % current_video)
                     video_df.to_csv(path, index=False)
-                    current_video = batch_video
-                    current_data = [[] for _ in range(len(columns))]
+                    current_video = item_video
+                    current_start = defaultdict(float)
+                    current_end = defaultdict(float)
+                    current_action = defaultdict(float)    
+                    calc_time_list = defaultdict(int)
 
-                current_data[0].extend(batch_action[batch_idx])
-                current_data[1].extend(batch_start[batch_idx])
-                current_data[2].extend(batch_end[batch_idx])
-                current_data[3].extend(curr_anchor_xmin)
-                current_data[4].extend(curr_anchor_xmax)
-                current_data[5].extend(batch_snippets)
+                print(item_snippets.shape, batch_action[batch_idx].shape)
+                for snippet_, action_, start_, end_ in zip(
+                        item_snippets, batch_action[batch_idx], batch_start[batch_idx], batch_end[batch_idx]):
+                    frame = snippet_.item()
+                    calc_time_list[frame] += 1
+                    current_action[frame] += action_
+                    current_start[frame] += start_
+                    current_end[frame] += end_
                     
-    if current_data[0]:
-        video_result = np.stack(current_data, axis=1)
+    if len(calc_time_list):
+        column_frames = sorted(calc_time_list.keys())
+        column_action = [current_action[k] * 1. / calc_time_list[k] for k in column_frames]
+        column_start = [current_start[k] * 1. / calc_time_list[k] for k in column_frames]
+        column_end = [current_end[k] * 1. / calc_time_list[k] for k in column_frames]
+        video_result = np.stack([column_action, column_start, column_end], axis=1)
+        print(video_result.shape)
+        
+        video_result = np.concatenate([video_result, np.reshape(column_frames, [-1, 1])], axis=1)
         video_df = pd.DataFrame(video_result, columns=columns)
         path = os.path.join(output_dir, '%s.csv' % current_video)
         video_df.to_csv(path, index=False)
+    print(len(all_vids))
              
 
 def BSN_inference_PEM(opt):
@@ -649,7 +707,9 @@ def main(opt):
         print("Post processing start")
         BSN_post_processing2(opt)
         print("Post processing finished")
-
+        if opt['do_eval_after_postprocessing']:
+            evaluation_proposal2(opt)
+            
     elif opt["module"] == "Evaluation":
         evaluation_proposal2(opt)
     print("")
