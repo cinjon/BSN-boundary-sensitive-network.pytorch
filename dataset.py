@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import pickle
 
 import numpy as np
 import pandas as pd
@@ -46,12 +47,16 @@ class Thumos(data.Dataset):
         
         # e.g. /data/thumos14_annotations/Test_Annotation.csv
         self.video_info_path = os.path.join(opt["video_info"], '%s_Annotation.csv' % self.subset)
-        self._get_data()
+        if self.mode == 'train':
+            self._get_data()
+        elif self.mode == 'inference':
+            self._get_inference_data()
+        else:
+            raise
 
     def _get_data(self):
         anno_df = pd.read_csv(self.video_info_path)
         video_name_list = list(set(anno_df.video.values[:]))
-        
         if self.feature_dirs:
             list_data = []
             
@@ -84,7 +89,7 @@ class Thumos(data.Dataset):
                 df_data = np.concatenate([df.values[:num_snippet, :]
                                           for df in feature_dfs],
                                          axis=1)
-                
+
             df_snippet = [start_snippet + temporal_gap*i for i in range(num_snippet)]
             stride = int(window_size / 2)
             num_windows = int((num_snippet + stride - window_size) / stride)
@@ -128,6 +133,7 @@ class Thumos(data.Dataset):
                     if self.feature_dirs:
                         list_data.append(np.array(tmp_data).astype(np.float32))
 
+        print("List of videos: ", len(set(list_videos)))
         self.data = {
             'gt_bbox': list_gt_bbox,
             'anchor_xmins': list_anchor_xmins,
@@ -135,23 +141,92 @@ class Thumos(data.Dataset):
             'video_names': list_videos,
             'indices': list_indices
         }
-        print('Size of data: ', len(self.data['gt_bbox']))
         if self.feature_dirs:
             self.data['video_data'] = list_data
 
+    def _get_inference_data(self):
+        anno_df = pd.read_csv(self.video_info_path)
+        video_name_list = list(set(anno_df.video.values[:]))
+        if self.feature_dirs:
+            list_data = []
+            
+        list_anchor_xmins = []
+        list_anchor_xmaxs = []
+        list_gt_bbox = []
+        list_videos = []
+        list_indices = []
+        
+        window_size = self.window_size
+        temporal_gap = self.temporal_gap
+        start_snippet = int((temporal_gap + 1) / 2)
+        stride = int(window_size / 2)
+        
+        for video_name in video_name_list:
+            anno_df_video = anno_df[anno_df.video == video_name]
+
+            # NOTE: num_snippet is the number of snippets in this video.
+            if self.image_dir:
+                image_dir = os.path.join(self.image_dir, video_name)
+                num_snippet = len(os.listdir(image_dir))
+                num_snippet = int((num_snippet - start_snippet) / temporal_gap)
+            elif self.feature_dirs:
+                feature_dfs = [
+                    pd.read_csv(os.path.join(feature_dir, '%s.csv' % video_name))
+                    for feature_dir in self.feature_dirs
+                ]
+                num_snippet = min([len(df) for df in feature_dfs])
+                df_data = np.concatenate([df.values[:num_snippet, :]
+                                          for df in feature_dfs],
+                                         axis=1)
+
+            df_snippet = [start_snippet + temporal_gap*i for i in range(num_snippet)]
+            num_windows = int((num_snippet + stride - window_size) / stride)
+            windows_start = [i* stride for i in range(num_windows)]
+            if num_snippet < window_size:
+                windows_start = [0]
+                if self.feature_dirs:
+                    # Add on a bunch of zero data if there aren't enough windows.
+                    tmp_data = np.zeros((window_size - num_snippet, 400))
+                    df_data = np.concatenate((df_data, tmp_data), axis=0)
+                df_snippet.extend([
+                    df_snippet[-1] + temporal_gap*(i+1)
+                    for i in range(window_size - num_snippet)
+                ])
+            elif num_snippet - windows_start[-1] - window_size > int(window_size / temporal_gap):
+                windows_start.append(num_snippet - window_size)
+
+            for start in windows_start:
+                if self.feature_dirs:
+                    tmp_data = df_data[start:start + window_size, :]
+                    
+                tmp_snippets = np.array(df_snippet[start:start + window_size])
+                list_videos.append(video_name)
+                list_indices.append(tmp_snippets)
+                if self.feature_dirs:
+                    list_data.append(np.array(tmp_data).astype(np.float32))
+
+        print("List of videos: ", len(set(list_videos)))
+        self.data = {
+            'video_names': list_videos,
+            'indices': list_indices
+        }
+        print('Size of data: ', len(self.data['video_names']))
+        if self.feature_dirs:
+            self.data['video_data'] = list_data
+        
     def __getitem__(self, index):
-        anchor_xmin = self.data['anchor_xmins'][index]
-        anchor_xmax = self.data['anchor_xmaxs'][index]
         video_data = self._get_video_data(self.data, index)
         
         if self.mode == "train":
+            anchor_xmin = self.data['anchor_xmins'][index]
+            anchor_xmax = self.data['anchor_xmaxs'][index]
             gt_bbox = self.data['gt_bbox'][index]        
             match_score_action, match_score_start, match_score_end = self._get_train_label(gt_bbox, anchor_xmin, anchor_xmax)
             return video_data, match_score_action, match_score_start, match_score_end
         else:
             video_name = self.data['video_names'][index]
             snippets = self.data['indices'][index]
-            return index, video_data, anchor_xmin, anchor_xmax, video_name, snippets
+            return index, video_data, video_name, snippets
 
     def _get_train_label(self, gt_bbox, anchor_xmin, anchor_xmax):
         gt_bbox = np.array(gt_bbox)
@@ -194,7 +269,7 @@ class Thumos(data.Dataset):
         return torch.Tensor(match_score_action), torch.Tensor(match_score_start), torch.Tensor(match_score_end)
         
     def __len__(self):
-        return len(self.data['gt_bbox'])
+        return len(self.data['video_names'])
 
     
 class ThumosFeatures(Thumos):
@@ -209,7 +284,7 @@ class ThumosFeatures(Thumos):
 class ThumosImages(Thumos):
 
     def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None):
-        self.do_augment = opts['do_augment'] and subset == 'train'
+        self.do_augment = opt['do_augment'] and subset == 'train'
         super(ThumosImages, self).__init__(opt, subset, feature_dirs=None, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)        
 
     def _get_video_data(self, data, index):
@@ -289,7 +364,12 @@ class GymnasticsDataSet(data.Dataset):
         self.boundary_ratio = opt["boundary_ratio"]
         self.video_info_path = opt["video_info"]
         self.video_anno_path = opt["video_anno"]
-        self._get_data()
+        if self.mode == 'train':
+            self._get_data()
+        elif self.mode == 'inference':
+            self._get_inference_data()
+        else:
+            raise
 
     def _get_data(self):
         anno_df = pd.read_csv(self.video_info_path)
@@ -326,6 +406,9 @@ class GymnasticsDataSet(data.Dataset):
         print("%s subset frame numbers: %d" %
               (self.subset, len(self.frame_list)))
 
+    def _get_inference_data(self):
+        raise
+    
     def _get_indices(self, index):
         video_name, frame_num = self.frame_list[index]
         start = frame_num
@@ -491,7 +574,7 @@ class ProposalSampler(data.WeightedRandomSampler):
             count_total = video_total_counts[video_name]
             percent = count_zeros / count_total
             if curr_vid is None or video_name != curr_vid:
-                print('switching to %s with percent %.04f' % (video_name, percent))
+                # print('switching to %s with percent %.04f' % (video_name, percent))
                 curr_vid = video_name
                 
             if percent < max_zero_weight:
@@ -573,7 +656,7 @@ class ProposalDataSet(data.Dataset):
                     pdf = pdf[:self.top_K]
                     video_feature = video_feature[pdf.index]
                     
-                print(video_name, pre_count, len(pdf), video_feature.shape, pgm_proposals_path, pgm_features_path)
+                # print(video_name, pre_count, len(pdf), video_feature.shape, pgm_proposals_path, pgm_features_path)
                 self.proposals[video_name] = pdf
                 self.features[video_name] = video_feature
                 self.indices.extend([(video_name, i) for i in range(len(pdf))])

@@ -65,8 +65,9 @@ def parse_opt():
     # PEM Training settings
     parser.add_argument('--pem_nonlinear_factor', type=int, default=0.1)
     parser.add_argument('--pem_training_lr', type=float, default=0.01)
-    parser.add_argument('--pem_weight_decay', type=float, default=0.00001)
-    parser.add_argument('--pem_l2_loss', type=float, default=0.000025)    
+    parser.add_argument('--pem_weight_decay', type=float, default=0)
+    parser.add_argument('--pem_l2_loss', type=float, default=0.000025)
+    parser.add_argument('--pem_lr_milestones', type=str, default='10')     
     parser.add_argument('--pem_epoch', type=int, default=20)
     parser.add_argument('--pem_step_size', type=int, default=10)
     parser.add_argument('--pem_step_gamma', type=float, default=0.1)

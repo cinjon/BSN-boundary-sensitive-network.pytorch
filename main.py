@@ -317,13 +317,8 @@ def BSN_Train_TEM(opt):
         pin_memory=True,
         drop_last=False)
 
-    if 'thumos' in opt['dataset']:
-        milestones = [int(k) for k in opt['tem_lr_milestones'].split(',')]
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=opt['tem_step_gamma'])
-    else:
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                                    step_size=opt["tem_step_size"],
-                                                    gamma=opt["tem_step_gamma"])
+    milestones = [int(k) for k in opt['tem_lr_milestones'].split(',')]
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=opt['tem_step_gamma'])
 
     if opt['log_to_comet']:
         comet_exp = CometExperiment(api_key="hIXq6lDzWzz24zgKv7RYz6blo",
@@ -393,12 +388,8 @@ def BSN_Train_PEM(opt):
         drop_last=False,
         collate_fn=collate_fn if not opt['pem_do_index'] else None)
 
-    if 'thumos' in opt['dataset']:
-        scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[10], gamma=opt['pem_step_gamma'])
-    else:
-        scheduler = torch.optim.lr_scheduler.StepLR(optimizer,
-                                                    step_size=opt["pem_step_size"],
-                                                    gamma=opt["pem_step_gamma"])
+    milestones = [int(k) for k in opt['pem_lr_milestones'].split(',')]    
+    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=opt['pem_step_gamma'])
 
     if opt['log_to_comet']:
         comet_exp = CometExperiment(api_key="hIXq6lDzWzz24zgKv7RYz6blo",
