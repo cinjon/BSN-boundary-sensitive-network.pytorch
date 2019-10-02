@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import re
 import pickle
+from urllib.parse import unquote
 
 import numpy as np
 import pandas as pd
@@ -50,8 +51,12 @@ class TEMDataset(data.Dataset):
         self._get_data()
 
     def _get_data(self):
+        print("Getting data ...", flush=True)
         anno_df = pd.read_csv(self.video_info_path)
         video_name_list = list(set(anno_df.video.values[:]))
+        video_name_list= video_name_list[:5]
+        self.durations = {v: None for v in video_name_list}
+        
         if self.feature_dirs:
             list_data = []
             
@@ -66,7 +71,8 @@ class TEMDataset(data.Dataset):
         start_snippet = int((skip_videoframes + 1) / 2)
         stride = int(num_videoframes / 2)
         
-        for video_name in video_name_list:
+        for num_video, video_name in enumerate(video_name_list):
+            print('On video %d / %d' % (num_video, len(video_name_list)), flush=True)
             anno_df_video = anno_df[anno_df.video == video_name]
             if self.mode == 'train':
                 gt_xmins = anno_df_video.startFrame.values[:]
@@ -74,8 +80,9 @@ class TEMDataset(data.Dataset):
 
             # NOTE: num_snippet is the number of snippets in this video.
             if self.image_dir:
-                image_dir = os.path.join(self.image_dir, video_name)
+                image_dir = self._get_image_dir(video_name)
                 num_snippet = len(os.listdir(image_dir))
+                self.durations[video_name] = num_snippet
                 num_snippet = int((num_snippet - start_snippet) / skip_videoframes)
             elif self.feature_dirs:
                 feature_dfs = [
@@ -247,40 +254,46 @@ class ThumosFeatures(TEMDataset):
 class ThumosImages(TEMImages):
 
     def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None):
-        super(ThumosImages, self).__init__(opt, subset, feature_dirs=None, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)        
+        super(ThumosImages, self).__init__(opt, subset, feature_dirs=None, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)
+
+    def _get_image_dir(self, video_name):
+        return os.path.join(self.image_dir, video_name)        
     
 
 class GymnasticsSampler(data.WeightedRandomSampler):
-    def __init__(self, video_dict, frame_list):
+    def __init__(self, train_data_set):
         """
         Args:
-          video_dict: A dict of key to video_info.
-          frame_list: A list of (key, index into that key's video). This is what the Dataset is using
-            and what we need to give sample weights for.
+          train_data_set: An instance of TEMDataset.
         """
-        per_video_frame_count = {k: int(v['duration_frame']) for k, v in video_dict.items()}
-        total_frame_count = sum(list(per_video_frame_count.values()))
+        durations = train_data_set.durations
+        if any([duration == None for duration in durations.values()]):
+            raise
+        
         # Initial weight count is inversely proportional to the number of frames in that video.
-        # The fewer the number of frames, the higher chance there is of selecting from that video.
-        weights = [total_frame_count * 1. / per_video_frame_count[k] for k, _ in frame_list]
-
-        on_indices = {k: set() for k in video_dict.keys()}
-        for k, video_info in video_dict.items():
-            fps = video_info['fps']
-            for anno in video_info['annotations']:
-                if anno['label'] == 'on':
-                    end_frame = int(anno['segment'][1] * fps)
-                    start_frame = int(anno['segment'][0] * fps) + 1
-                    on_indices[k].update(range(start_frame, end_frame))
-
+        # The fewer the number of frames, the higher chance there is of selecting from that video.        
+        total_frame_count = sum(list(durations.values()))
+        weights = [total_frame_count * 1. / durations[video]
+                   for video in train_data_set.data['video_names']]
+    
+        df = pd.read_csv(train_data_set.video_info_path)
+        on_indices = {k: set() for k in df.video.values[:]}
+        for video, start_frame, end_frame in zip(
+                df.video.values[:], df.startFrame.values[:], df.endFrame.values[:]
+        ):
+            on_indices[video].update(range(start_frame, end_frame))
+            
         total_on_count = sum([len(v) for k, v in on_indices.items()])
         total_on_ratio = 1. * total_on_count / total_frame_count
         print('total on ratio: ', total_on_ratio, total_on_count, total_frame_count)
-        for num, (k, frame) in enumerate(frame_list):
-            if frame in on_indices[k]:
+
+        for num, video in enumerate(train_data_set.data['video_names']):
+            indices = train_data_set.data['indices']
+            if any([index in on_indices[video]
+                    for index in indices]):
                 weights[num] *= 0.5 / total_on_ratio
             else:
-                weights[num] *= 0.5 / (1 - total_on_ratio)
+                weights[num] *= 0.5/ (1 - total_on_ratio)
 
         super(GymnasticsSampler, self).__init__(weights, len(weights), replacement=True)
 
@@ -288,9 +301,12 @@ class GymnasticsSampler(data.WeightedRandomSampler):
 class GymnasticsImages(TEMImages):
 
     def __init__(self, opt, subset=None, fps=12, image_dir=None, img_loading_func=None):
-        self.do_augment = opt['do_augment'] and subset == 'train'
-        super(GymnasticsImages, self).__init__(opt, subset, feature_dirs=None, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)        
+        super(GymnasticsImages, self).__init__(opt, subset, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)        
 
+    def _get_image_dir(self, video_name):
+        target_dir = [k for k in os.listdir(self.image_dir) if unquote(k).replace('-', '').replace(' ', '') == video_name][0]
+        return os.path.join(self.image_dir, target_dir)
+        
 
 class ProposalSampler(data.WeightedRandomSampler):
     def __init__(self, proposals, frame_list, max_zero_weight=0.25):

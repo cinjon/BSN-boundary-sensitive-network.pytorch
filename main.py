@@ -12,7 +12,7 @@ import torch.optim as optim
 import numpy as np
 from tensorboardX import SummaryWriter
 import opts
-from dataset import ThumosFeatures, ThumosImages, ProposalDataSet, GymnasticsSampler, GymnasticsDataSet, ProposalSampler
+from dataset import ThumosFeatures, ThumosImages, ProposalDataSet, GymnasticsSampler, GymnasticsImages, ProposalSampler
 from models import TEM, PEM, partial_load, get_img_loader
 from loss_function import TEM_loss_function, PEM_loss_function
 import pandas as pd
@@ -279,10 +279,11 @@ def BSN_Train_TEM(opt):
 
     if opt['dataset'] == 'gymnastics':
         img_loading_func = get_img_loader(opt)
-        train_data_set = GymnasticsDataSet(opt, subset=opt['tem_train_subset'], img_loading_func=img_loading_func,
-                                           overlap_windows=True)
-        train_sampler = GymnasticsSampler(train_data_set.video_dict, train_data_set.frame_list)
-        test_data_set = GymnasticsDataSet(opt, subset="test", img_loading_func=img_loading_func)
+        train_data_set = GymnasticsImages(
+            opt, subset='Train', img_loading_func=img_loading_func,
+            image_dir='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12')
+        train_sampler = GymnasticsSampler(train_data_set)
+        test_data_set = GymnasticsImages(opt, subset="Val", img_loading_func=img_loading_func)
     elif opt['dataset'] == 'thumosfeatures':
         feature_dirs = opt['feature_dirs'].split(',')
         train_data_set = ThumosFeatures(opt, subset='Val', feature_dirs=feature_dirs)
@@ -439,32 +440,27 @@ def BSN_inference_TEM(opt):
     
     print('Checkpoint path is ', checkpoint_path, flush=True)
     checkpoint = torch.load(checkpoint_path)
-    print('11', flush=True)
     base_dict = {
         '.'.join(k.split('.')[1:]): v
         for k, v in list(checkpoint['state_dict'].items())
     }
     model.load_state_dict(base_dict)
-    print('22', flush=True)    
     model = torch.nn.DataParallel(model).cuda()
-    print('33', flush=True)        
     model.eval()
 
     if opt['dataset'] == 'gymnastics':
         img_loading_func = get_img_loader(opt)
-        dataset = GymnasticsDataSet(opt, subset=opt['tem_results_subset'], img_loading_func=img_loading_func)
+        dataset = GymnasticsImages(opt, subset=opt['tem_results_subset'], img_loading_func=img_loading_func)
     elif opt['dataset'] == 'thumosfeatures':
         feature_dirs = opt['feature_dirs'].split(',')
         dataset = ThumosFeatures(opt, subset=opt['tem_results_subset'].title(), feature_dirs=feature_dirs)
     elif opt['dataset'] == 'thumosimages':
-        print('44', flush=True)                        
         img_loading_func = get_img_loader(opt)
         dataset = ThumosImages(
             opt, subset=opt['tem_results_subset'].title(),
             img_loading_func=img_loading_func,
             image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_%s_tal.30' % opt['tem_results_subset'],
         )
-        print('55', flush=True)
                 
     test_loader = torch.utils.data.DataLoader(
         dataset,
@@ -490,7 +486,6 @@ def BSN_inference_TEM(opt):
         # The data should be coming back s.t. consecutive data are from the same video.
         # until there is a breakpoint and it starts a new video.
         TEM_output = model(input_data).detach().cpu().numpy()
-        print('Got TEM output!', TEM_output.shape, flush=True)                
         batch_action = TEM_output[:, 0, :]
         batch_start = TEM_output[:, 1, :]
         batch_end = TEM_output[:, 2, :]

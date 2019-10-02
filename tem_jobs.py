@@ -697,12 +697,11 @@ def run(find_counter=None):
                             #     func(_job, counter, email, code_directory)
                                 
 
-    # print("Counter: ", counter)  # 568
-    # The prior gymnastics models came back NaN because of a bug in loss_function
+    print("Counter: ", counter) 
+    # The prior gymnastics models, now updated to work like the Thumos ones.
     job = {
-        'name': '2019.10.01',
-        'video_anno': os.path.join(anno_directory, 'anno_fps12.on.sep052019.json'),
-        'video_info': os.path.join(anno_directory, 'video_info.sep052019.fps12.csv'),
+        'name': '2019.10.02',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',
         'dataset': 'gymnastics',
         'module': 'TEM',
         'mode': 'train',
@@ -752,6 +751,14 @@ def run(find_counter=None):
                         
                                 if not find_counter:
                                     func(_job, counter, email, code_directory)
-                            
+                                break
+                            break
+                        break
+                    break
+                break
+            break
+        break
+
+    
 if __name__ == '__main__':
     run()
