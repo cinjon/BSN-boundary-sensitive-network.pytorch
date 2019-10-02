@@ -693,9 +693,65 @@ def run(find_counter=None):
                             
                             if find_counter == counter:
                                 return _job
-                            elif not find_counter:
-                                func(_job, counter, email, code_directory)
+                            # elif not find_counter:
+                            #     func(_job, counter, email, code_directory)
                                 
+
+    # print("Counter: ", counter)  # 568
+    # The prior gymnastics models came back NaN because of a bug in loss_function
+    job = {
+        'name': '2019.10.01',
+        'video_anno': os.path.join(anno_directory, 'anno_fps12.on.sep052019.json'),
+        'video_info': os.path.join(anno_directory, 'video_info.sep052019.fps12.csv'),
+        'dataset': 'gymnastics',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 10,
+        'tem_epoch': 30,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'representation_module': 'corrflow',
+        'representation_checkpoint': '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth',
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+    }
+    num_gpus = 8
+    for do_augment in [True, False]:
+        for do_feat_conversion in [True, False]:
+            for tem_milestones in ['5,15', '5,20', '10,25']:
+                for tem_step_gamma in [0.1, 0.5]:
+                    for tem_l2_loss in [0, 0.01, 0.005, 0.001]:
+                        for lr in [3e-4]:
+                            for tem_weight_decay in [0, 1e-4]:
+                                if tem_weight_decay > 0 and tem_l2_loss > 0:
+                                    continue
+                                
+                                counter += 1
+                                _job = {k: v for k, v in job.items()}
+                            
+                                batch_size = 4 if do_feat_conversion else 1
+                                _job['tem_batch_size'] = batch_size
+                                _job['num_gpus'] = num_gpus
+                                
+                                _job['name'] = '%s-%05d' % (_job['name'], counter)
+                                _job['num_cpus'] = num_gpus * 10
+                                _job['gb'] = 64 * num_gpus
+                                
+                                _job['tem_training_lr'] = lr
+                                _job['tem_lr_milestones'] = tem_milestones
+                                _job['do_feat_conversion'] = do_feat_conversion
+                                _job['do_augment'] = do_augment
+                                _job['tem_step_gamma'] = tem_step_gamma
+                                _job['tem_l2_loss'] = tem_l2_loss
+                                _job['tem_weight_decay'] = tem_weight_decay
+                                _job['time'] = 16 if do_feat_conversion else 24
                         
+                                if find_counter == counter:
+                                    return _job
+                        
+                                if not find_counter:
+                                    func(_job, counter, email, code_directory)
+                            
 if __name__ == '__main__':
     run()

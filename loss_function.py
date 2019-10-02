@@ -13,8 +13,11 @@ def bi_loss(scores, anchors, opt):
     num_positive = torch.sum(pmask)
     num_entries = len(scores)
     # I made it do the +1 below and the ratio + 1e-6
-    # ratio = (num_entries + 1) / (num_positive + 1)
-    # ratio += 1e-6
+    # Oct 1st --> Uncommented the following 2 lines because we saw NaNs in gymnastics.
+    ###
+    ratio = (num_entries + 1) / (num_positive + 1)
+    ratio += 1e-6
+    ###
     ratio = num_entries / num_positive 
 
     coef_0 = 0.5 * (ratio) / (ratio - 1)
@@ -62,6 +65,7 @@ def TEM_loss_function(y_action, y_start, y_end, TEM_output, opt):
     total_loss = 2 * loss_dict["action_loss"] + loss_dict["start_loss"] + loss_dict[
         "end_loss"]
     loss_dict["total_loss"] = total_loss
+    loss_dict["cost"] = total_loss    
     return loss_dict
 
 

@@ -44,7 +44,7 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         model.module.set_eval_representation()
         
     count = 1
-    keys = ['action_loss', 'start_loss', 'end_loss', 'total_loss', 'current_l2', 'action_positive', 'start_positive', 'end_positive', 'entries']
+    keys = ['action_loss', 'start_loss', 'end_loss', 'total_loss', 'cost', 'current_l2', 'action_positive', 'start_positive', 'end_positive', 'entries']
     epoch_sums = {k: 0 for k in keys}
     
     if comet_exp:
@@ -107,7 +107,7 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
 def test_TEM(data_loader, model, epoch, global_step, comet_exp, opt):
     model.eval()
     
-    keys = ['action_loss', 'start_loss', 'end_loss', 'total_loss', 'action_positive', 'start_positive', 'end_positive', 'entries', 'current_l2']
+    keys = ['action_loss', 'start_loss', 'end_loss', 'total_loss', 'cost', 'action_positive', 'start_positive', 'end_positive', 'entries', 'current_l2']
     epoch_sums = {k: 0 for k in keys}
     
     for n_iter, (input_data, label_action, label_start,
@@ -423,7 +423,7 @@ def BSN_Train_PEM(opt):
 
 def BSN_inference_TEM(opt):
     output_dir = os.path.join(opt['tem_results_dir'], opt['checkpoint_path'].split('/')[-1])
-    print(sorted(opt.items()))
+    print(sorted(opt.items()), flush=True)
         
     model = TEM(opt)
     checkpoint_epoch = opt['checkpoint_epoch']
@@ -437,14 +437,17 @@ def BSN_inference_TEM(opt):
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
     
-    print('Checkpoint path is ', checkpoint_path)
+    print('Checkpoint path is ', checkpoint_path, flush=True)
     checkpoint = torch.load(checkpoint_path)
+    print('11', flush=True)
     base_dict = {
         '.'.join(k.split('.')[1:]): v
         for k, v in list(checkpoint['state_dict'].items())
     }
     model.load_state_dict(base_dict)
+    print('22', flush=True)    
     model = torch.nn.DataParallel(model).cuda()
+    print('33', flush=True)        
     model.eval()
 
     if opt['dataset'] == 'gymnastics':
@@ -454,12 +457,14 @@ def BSN_inference_TEM(opt):
         feature_dirs = opt['feature_dirs'].split(',')
         dataset = ThumosFeatures(opt, subset=opt['tem_results_subset'].title(), feature_dirs=feature_dirs)
     elif opt['dataset'] == 'thumosimages':
+        print('44', flush=True)                        
         img_loading_func = get_img_loader(opt)
         dataset = ThumosImages(
             opt, subset=opt['tem_results_subset'].title(),
             img_loading_func=img_loading_func,
             image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_%s_tal.30' % opt['tem_results_subset'],
         )
+        print('55', flush=True)
                 
     test_loader = torch.utils.data.DataLoader(
         dataset,
@@ -479,21 +484,24 @@ def BSN_inference_TEM(opt):
     calc_time_list = defaultdict(int)
     num_videoframes = opt['num_videoframes']
     skip_videoframes = opt['skip_videoframes']
+    print('About to start enumerating', flush=True)
     for test_idx, (index_list, input_data, video_name, snippets) in enumerate(test_loader):
+        print('Started enumerating!', flush=True)        
         # The data should be coming back s.t. consecutive data are from the same video.
         # until there is a breakpoint and it starts a new video.
         TEM_output = model(input_data).detach().cpu().numpy()
+        print('Got TEM output!', TEM_output.shape, flush=True)                
         batch_action = TEM_output[:, 0, :]
         batch_start = TEM_output[:, 1, :]
         batch_end = TEM_output[:, 2, :]
         
         index_list = index_list.numpy()
-        print("Size input_data: ", index_list.shape, len(video_name), batch_action.shape)
+        # print("Size input_data: ", index_list.shape, len(video_name), batch_action.shape, flush=True)
         for batch_idx, full_idx in enumerate(index_list):
             if 'gymnastics' in opt['dataset']:
                 video, frame = dataset.frame_list[full_idx]
                 if not current_video:
-                    print('First video: ', video, full_idx)
+                    print('First video: ', video, full_idx, flush=True)
                     current_video = video
                     current_data = [[] for _ in range(len(columns))]
                 elif video != current_video:
@@ -518,7 +526,7 @@ def BSN_inference_TEM(opt):
                 all_vids[item_video] += 1
                 item_snippets = snippets[batch_idx]
                 if not current_video:
-                    print('First video: ', item_video)
+                    print('First video: ', item_video, flush=True)
                     current_video = item_video
                     current_start = defaultdict(float)
                     current_end = defaultdict(float)
@@ -531,12 +539,6 @@ def BSN_inference_TEM(opt):
                     column_end = [current_end[k] * 1. / calc_time_list[k] for k in column_frames]
                     video_result = np.stack([column_action, column_start, column_end], axis=1)
                     column_frames = np.reshape(column_frames, [-1, 1])
-                    # print(len(calc_time_list))
-                    # print(np.array(column_action).shape)
-                    # print(np.array(column_start).shape)
-                    # print(np.array(column_end).shape)
-                    # print(column_frames.shape)
-                    # print(video_result.shape)
 
                     video_result = np.concatenate([video_result, column_frames], axis=1)
                     video_df = pd.DataFrame(video_result, columns=columns)
@@ -548,7 +550,6 @@ def BSN_inference_TEM(opt):
                     current_action = defaultdict(float)    
                     calc_time_list = defaultdict(int)
 
-                print(item_snippets.shape, batch_action[batch_idx].shape)
                 for snippet_, action_, start_, end_ in zip(
                         item_snippets, batch_action[batch_idx], batch_start[batch_idx], batch_end[batch_idx]):
                     frame = snippet_.item()
@@ -563,7 +564,7 @@ def BSN_inference_TEM(opt):
         column_start = [current_start[k] * 1. / calc_time_list[k] for k in column_frames]
         column_end = [current_end[k] * 1. / calc_time_list[k] for k in column_frames]
         video_result = np.stack([column_action, column_start, column_end], axis=1)
-        print(video_result.shape)
+        print(video_result.shape, flush=True)
         
         video_result = np.concatenate([video_result, np.reshape(column_frames, [-1, 1])], axis=1)
         video_df = pd.DataFrame(video_result, columns=columns)
@@ -651,6 +652,7 @@ def main(opt):
     torch.backends.cudnn.benchmark = False
 
     num_gpus = opt['num_gpus']
+    print("hi in main", flush=True)
     if opt['module'] == 'TEM':
         opt['base_training_lr'] = opt['tem_training_lr']
         opt['base_batch_size'] = opt['tem_batch_size']
@@ -661,7 +663,7 @@ def main(opt):
         opt['base_batch_size'] = opt['pem_batch_size']
         opt['pem_batch_size'] *= num_gpus
         opt['pem_training_lr'] *= num_gpus
-    print(opt)
+    print(opt, flush=True)
 
     if opt["module"] == "TEM":
         if opt["mode"] == "train":
