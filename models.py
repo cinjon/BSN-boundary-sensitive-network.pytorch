@@ -6,6 +6,12 @@ import torch.nn.functional as F
 import torch.nn as nn
 from torch.nn import init
 
+# from representations.ccc.model import Model as CCCModel
+# from representations.ccc.model import img_loading_func as ccc_img_loading_func
+# from representations.ccc.representation import Representation as CCCRepresentation
+# from representations.ccc.representation import THUMOS_OUTPUT_DIM as CCCThumosDim
+# from representations.ccc.representation import GYMNASTICS_OUTPUT_DIM as CCCGymnasticsDim
+
 from representations.corrflow.model import Model as CorrFlowModel
 from representations.corrflow.model import img_loading_func as corrflow_img_loading_func
 from representations.corrflow.representation import Representation as CorrFlowRepresentation
@@ -19,7 +25,12 @@ def _get_module(key):
         'corrflow-thumosimages':
             (CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func, CorrFlowThumosDim),
         'corrflow-gymnastics':
-            (CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func, CorrFlowGymnasticsDim)
+            (CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func, CorrFlowGymnasticsDim),
+        # 'ccc-thumosimages':
+        #     (CCCModel, CCCRepresentation, ccc_img_loading_func, CCCThumosDim),
+        # 'ccc-gymnastics':
+        #     (CCCModel, CCCRepresentation, ccc_img_loading_func, CCCGymnasticsDim)
+        
     }.get(key)
 
 
@@ -45,7 +56,6 @@ class TEM(torch.nn.Module):
 
         self.temporal_dim = opt["temporal_scale"]
         self.nonlinear_factor = opt["tem_nonlinear_factor"]
-        print("NONLINEAR: ", self.nonlinear_factor)
         self.batch_size = opt["tem_batch_size"]
         self.num_videoframes = opt["num_videoframes"]
         self.c_hidden = opt["tem_hidden_dim"]

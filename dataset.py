@@ -50,12 +50,22 @@ class TEMDataset(data.Dataset):
         self.video_info_path = os.path.join(opt["video_info"], '%s_Annotation.csv' % self.subset)
         self._get_data()
 
-    def _get_data(self):
-        print("Getting data ...", flush=True)
+    def _get_data(self):        
         anno_df = pd.read_csv(self.video_info_path)
-        video_name_list = list(set(anno_df.video.values[:]))
-        video_name_list= video_name_list[:5]
-        self.durations = {v: None for v in video_name_list}
+        video_name_list = sorted(list(set(anno_df.video.values[:])))
+        
+        video_info_dir = '/'.join(self.video_info_path.split('/')[:-1])
+        saved_data_path = os.path.join(video_info_dir, 'saved.%s.nf%d.sf%d.num%d.pkl' % (
+            self.subset, self.num_videoframes, self.skip_videoframes,
+            len(video_name_list))
+        )
+        print(saved_data_path)
+        if os.path.exists(saved_data_path):
+            print('Got saved data.')
+            with open(saved_data_path, 'rb') as f:
+                self.data, self.durations = pickle.load(f)
+            print('Size of data: ', len(self.data['video_names']), flush=True)    
+            return
         
         if self.feature_dirs:
             list_data = []
@@ -70,9 +80,11 @@ class TEMDataset(data.Dataset):
         skip_videoframes = self.skip_videoframes
         start_snippet = int((skip_videoframes + 1) / 2)
         stride = int(num_videoframes / 2)
+
+        self.durations = {}
         
         for num_video, video_name in enumerate(video_name_list):
-            print('On video %d / %d' % (num_video, len(video_name_list)), flush=True)
+            print('Getting video %d / %d' % (num_video, len(video_name_list)), flush=True)
             anno_df_video = anno_df[anno_df.video == video_name]
             if self.mode == 'train':
                 gt_xmins = anno_df_video.startFrame.values[:]
@@ -156,6 +168,9 @@ class TEMDataset(data.Dataset):
         if self.feature_dirs:
             self.data['video_data'] = list_data
         print('Size of data: ', len(self.data['video_names']), flush=True)
+        with open(saved_data_path, 'wb') as f:
+            pickle.dump([self.data, self.durations], f)
+        print('Dumped data...')
 
     def __getitem__(self, index):
         video_data = self._get_video_data(self.data, index)
@@ -227,7 +242,6 @@ class TEMImages(TEMDataset):
         paths = [path / ('%010.4f.npy' % (i / self.fps)) for i in indices]
         imgs = [self.img_loading_func(p.absolute(), do_augment=self.do_augment)
                 for p in paths if p.exists()]
-            
         if type(imgs[0]) == np.array:
             video_data = np.array(imgs)
             video_data = torch.Tensor(video_data)
@@ -281,14 +295,17 @@ class GymnasticsSampler(data.WeightedRandomSampler):
         for video, start_frame, end_frame in zip(
                 df.video.values[:], df.startFrame.values[:], df.endFrame.values[:]
         ):
-            on_indices[video].update(range(start_frame, end_frame))
-            
+            if video in durations:
+                on_indices[video].update(range(start_frame, end_frame))
+
+        print([(k, len(on_indices[k]), v) for k, v in durations.items()])
+        print('on / total: ', len(durations), len(on_indices))
         total_on_count = sum([len(v) for k, v in on_indices.items()])
         total_on_ratio = 1. * total_on_count / total_frame_count
         print('total on ratio: ', total_on_ratio, total_on_count, total_frame_count)
 
         for num, video in enumerate(train_data_set.data['video_names']):
-            indices = train_data_set.data['indices']
+            indices = train_data_set.data['indices'][num]
             if any([index in on_indices[video]
                     for index in indices]):
                 weights[num] *= 0.5 / total_on_ratio

@@ -283,7 +283,9 @@ def BSN_Train_TEM(opt):
             opt, subset='Train', img_loading_func=img_loading_func,
             image_dir='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12')
         train_sampler = GymnasticsSampler(train_data_set)
-        test_data_set = GymnasticsImages(opt, subset="Val", img_loading_func=img_loading_func)
+        test_data_set = GymnasticsImages(
+            opt, subset="Val", img_loading_func=img_loading_func,
+            image_dir='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12')
     elif opt['dataset'] == 'thumosfeatures':
         feature_dirs = opt['feature_dirs'].split(',')
         train_data_set = ThumosFeatures(opt, subset='Val', feature_dirs=feature_dirs)
@@ -647,7 +649,6 @@ def main(opt):
     torch.backends.cudnn.benchmark = False
 
     num_gpus = opt['num_gpus']
-    print("hi in main", flush=True)
     if opt['module'] == 'TEM':
         opt['base_training_lr'] = opt['tem_training_lr']
         opt['base_batch_size'] = opt['tem_batch_size']
