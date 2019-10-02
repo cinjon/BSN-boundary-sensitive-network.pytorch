@@ -47,15 +47,7 @@ class Thumos(data.Dataset):
         
         # e.g. /data/thumos14_annotations/Test_Annotation.csv
         self.video_info_path = os.path.join(opt["video_info"], '%s_Annotation.csv' % self.subset)
-        print('In THumos', flush=True)
-        if self.mode == 'train':
-            self._get_data()
-        elif self.mode == 'inference':
-            print('Getting inferen', flush=True)            
-            self._get_inference_data()
-            print('Got infere', flush=True)          
-        else:
-            raise
+        self._get_data()
 
     def _get_data(self):
         anno_df = pd.read_csv(self.video_info_path)
@@ -72,11 +64,13 @@ class Thumos(data.Dataset):
         num_videoframes = self.num_videoframes
         skip_videoframes = self.skip_videoframes
         start_snippet = int((skip_videoframes + 1) / 2)
+        stride = int(num_videoframes / 2)
         
         for video_name in video_name_list:
             anno_df_video = anno_df[anno_df.video == video_name]
-            gt_xmins = anno_df_video.startFrame.values[:]
-            gt_xmaxs = anno_df_video.endFrame.values[:]
+            if self.mode == 'train':
+                gt_xmins = anno_df_video.startFrame.values[:]
+                gt_xmaxs = anno_df_video.endFrame.values[:]
 
             # NOTE: num_snippet is the number of snippets in this video.
             if self.image_dir:
@@ -94,7 +88,6 @@ class Thumos(data.Dataset):
                                          axis=1)
 
             df_snippet = [start_snippet + skip_videoframes*i for i in range(num_snippet)]
-            stride = int(num_videoframes / 2)
             num_windows = int((num_snippet + stride - num_videoframes) / stride)
             windows_start = [i* stride for i in range(num_windows)]
             if num_snippet < num_videoframes:
@@ -115,118 +108,50 @@ class Thumos(data.Dataset):
                     tmp_data = df_data[start:start + num_videoframes, :]
                     
                 tmp_snippets = np.array(df_snippet[start:start + num_videoframes])
-                tmp_anchor_xmins = tmp_snippets - skip_videoframes/2.
-                tmp_anchor_xmaxs = tmp_snippets + skip_videoframes/2.
-                tmp_gt_bbox = []
-                tmp_ioa_list = []
-                for idx in range(len(gt_xmins)):
-                    tmp_ioa = ioa_with_anchors(gt_xmins[idx], gt_xmaxs[idx],
-                                               tmp_anchor_xmins[0],
-                                               tmp_anchor_xmaxs[-1])
-                    tmp_ioa_list.append(tmp_ioa)
-                    if tmp_ioa > 0:
-                        tmp_gt_bbox.append([gt_xmins[idx], gt_xmaxs[idx]])
+                if self.mode == 'train':
+                    tmp_anchor_xmins = tmp_snippets - skip_videoframes/2.
+                    tmp_anchor_xmaxs = tmp_snippets + skip_videoframes/2.
+                    tmp_gt_bbox = []
+                    tmp_ioa_list = []
+                    for idx in range(len(gt_xmins)):
+                        tmp_ioa = ioa_with_anchors(gt_xmins[idx], gt_xmaxs[idx],
+                                                   tmp_anchor_xmins[0],
+                                                   tmp_anchor_xmaxs[-1])
+                        tmp_ioa_list.append(tmp_ioa)
+                        if tmp_ioa > 0:
+                            tmp_gt_bbox.append([gt_xmins[idx], gt_xmaxs[idx]])
                         
-                if len(tmp_gt_bbox) > 0 and max(tmp_ioa_list) > 0.9:
-                    list_gt_bbox.append(tmp_gt_bbox)
-                    list_anchor_xmins.append(tmp_anchor_xmins)
-                    list_anchor_xmaxs.append(tmp_anchor_xmaxs)
+                    if len(tmp_gt_bbox) > 0 and max(tmp_ioa_list) > 0.9:
+                        list_gt_bbox.append(tmp_gt_bbox)
+                        list_anchor_xmins.append(tmp_anchor_xmins)
+                        list_anchor_xmaxs.append(tmp_anchor_xmaxs)
+                        list_videos.append(video_name)
+                        list_indices.append(tmp_snippets)
+                        if self.feature_dirs:
+                            list_data.append(np.array(tmp_data).astype(np.float32))
+                elif self.mode == 'inference':
                     list_videos.append(video_name)
                     list_indices.append(tmp_snippets)
                     if self.feature_dirs:
                         list_data.append(np.array(tmp_data).astype(np.float32))
-
-        print("List of videos: ", len(set(list_videos)))
-        self.data = {
-            'gt_bbox': list_gt_bbox,
-            'anchor_xmins': list_anchor_xmins,
-            'anchor_xmaxs': list_anchor_xmaxs,
-            'video_names': list_videos,
-            'indices': list_indices
-        }
-        if self.feature_dirs:
-            self.data['video_data'] = list_data
-
-    def _get_inference_data(self):
-        anno_df = pd.read_csv(self.video_info_path)
-        video_name_list = list(set(anno_df.video.values[:]))
-        if self.feature_dirs:
-            list_data = []
-            
-        list_anchor_xmins = []
-        list_anchor_xmaxs = []
-        list_gt_bbox = []
-        list_videos = []
-        list_indices = []
-        
-        num_videoframes = self.num_videoframes
-        skip_videoframes = self.skip_videoframes
-        start_snippet = int((skip_videoframes + 1) / 2)
-        stride = int(num_videoframes / 2)
-
-        print('Len of video_name_list: ', len(video_name_list), flush=True)
-        
-        for num, video_name in enumerate(video_name_list):
-            anno_df_video = anno_df[anno_df.video == video_name]
-            print('1111: ', video_name, ' %d / %d' % (num, len(video_name_list)), flush=True)
-        
-            # NOTE: num_snippet is the number of snippets in this video.
-            if self.image_dir:
-                image_dir = os.path.join(self.image_dir, video_name)
-                num_snippet = len(os.listdir(image_dir))
-                num_snippet = int((num_snippet - start_snippet) / skip_videoframes)
-                print('2222: ', image_dir, flush=True)
-            elif self.feature_dirs:
-                feature_dfs = [
-                    pd.read_csv(os.path.join(feature_dir, '%s.csv' % video_name))
-                    for feature_dir in self.feature_dirs
-                ]
-                num_snippet = min([len(df) for df in feature_dfs])
-                df_data = np.concatenate([df.values[:num_snippet, :]
-                                          for df in feature_dfs],
-                                         axis=1)
-
-            df_snippet = [start_snippet + skip_videoframes*i for i in range(num_snippet)]
-            num_windows = int((num_snippet + stride - num_videoframes) / stride)
-            windows_start = [i* stride for i in range(num_windows)]
-            if num_snippet < num_videoframes:
-                windows_start = [0]
-                if self.feature_dirs:
-                    # Add on a bunch of zero data if there aren't enough windows.
-                    tmp_data = np.zeros((num_videoframes - num_snippet, 400))
-                    df_data = np.concatenate((df_data, tmp_data), axis=0)
-                df_snippet.extend([
-                    df_snippet[-1] + skip_videoframes*(i+1)
-                    for i in range(num_videoframes - num_snippet)
-                ])
-            elif num_snippet - windows_start[-1] - num_videoframes > int(num_videoframes / skip_videoframes):
-                windows_start.append(num_snippet - num_videoframes)
-
-            print('333: ', len(windows_start), flush=True)                
-            for start in windows_start:
-                print('Start: ', start, flush=True)
-                if self.feature_dirs:
-                    tmp_data = df_data[start:start + num_videoframes, :]
-                    
-                tmp_snippets = np.array(df_snippet[start:start + num_videoframes])
-                list_videos.append(video_name)
-                list_indices.append(tmp_snippets)
-                if self.feature_dirs:
-                    list_data.append(np.array(tmp_data).astype(np.float32))
-
+                                
         print("List of videos: ", len(set(list_videos)), flush=True)
         self.data = {
             'video_names': list_videos,
             'indices': list_indices
         }
-        print('Size of data: ', len(self.data['video_names']), flush=True)
+        if self.mode == 'train':
+            self.data.update({
+                'gt_bbox': list_gt_bbox,
+                'anchor_xmins': list_anchor_xmins,
+                'anchor_xmaxs': list_anchor_xmaxs,
+            }
         if self.feature_dirs:
             self.data['video_data'] = list_data
-        
+        print('Size of data: ', len(self.data['video_names']), flush=True)                             
+
     def __getitem__(self, index):
-        print('Getting item: ', index, flush=True)
         video_data = self._get_video_data(self.data, index)
-        print('Got videodata', flush=True)
         if self.mode == "train":
             anchor_xmin = self.data['anchor_xmins'][index]
             anchor_xmax = self.data['anchor_xmaxs'][index]
@@ -305,8 +230,6 @@ class ThumosImages(Thumos):
         paths = [path / ('%010.4f.npy' % (i / self.fps)) for i in indices]
         imgs = [self.img_loading_func(p.absolute(), do_augment=self.do_augment)
                 for p in paths if p.exists()]
-        # if len(imgs) < self.num_videoframes:
-        #     imgs.extend([np.zeros(imgs[-1].shape) for _ in range(self.num_videoframes - len(imgs))])
             
         if type(imgs[0]) == np.array:
             video_data = np.array(imgs)
@@ -362,14 +285,14 @@ class GymnasticsDataSet(data.Dataset):
     def __init__(self, opt, subset="train", img_loading_func=None, overlap_windows=False):
         self.subset = subset
         self.mode = opt["mode"]
-        self.do_augment = opt['do_augment'] and subset == 'train'
-        self.img_loading_func = img_loading_func
-        self.overlap_windows = overlap_windows
-
+        self.boundary_ratio = opt["boundary_ratio"]
         self.num_videoframes = opt['num_videoframes']
         self.skip_videoframes = opt['skip_videoframes']
+        self.img_loading_func = img_loading_func
+
+        self.overlap_windows = overlap_windows
+        self.do_augment = opt['do_augment'] and subset == 'train'
             
-        self.boundary_ratio = opt["boundary_ratio"]
         self.video_info_path = opt["video_info"]
         self.video_anno_path = opt["video_anno"]
         if self.mode == 'train':
