@@ -50,7 +50,7 @@ def _run_batch(job,
     minutes = int((time - hours) * 60)
     
     if local_comet_dir:
-        job['local_comet_dir'] = local_comet_dir
+        job['local_comet_dir'] = os.path.join(local_comet_dir, job['module'].lower())
 
     num_gpus = job['num_gpus']
     num_cpus = job.pop('num_cpus')
@@ -126,9 +126,9 @@ def _run_batch(job,
         f.write(jobcommand + "\n")
 
     s = "sbatch %s" % os.path.join(slurm_scripts, jobname + ".slurm")
-    # os.system(s)
+    os.system(s)
 
-
+    
 def fb_run_batch(job, counter, email, code_directory):
 
     def module_load(f, num_gpus):

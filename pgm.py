@@ -57,7 +57,9 @@ def generate_proposals(opt, video_list, video_data):
     tem_results_dir = opt['tem_results_dir']
     proposals_dir = opt['pgm_proposals_dir']
     skipped_paths = []
-        
+
+    print(anno_df, flush=True)
+    print(video_list, flush=True)
     for video_name in video_list:
         print('Starting %s' % video_name)
         results_path = os.path.join(tem_results_dir, '%s.csv' % video_name)
@@ -193,8 +195,7 @@ def getDatasetDict(opt):
     print(opt['video_info'])
     print(opt['video_anno'])
     video_info = opt['video_info']
-    if 'thumos' in opt['dataset']:
-        video_info = os.path.join(video_info, 'Full_Annotation.csv')
+    video_info = os.path.join(video_info, 'Full_Annotation.csv')
     print(video_info)
     df = pd.read_csv(video_info)
     
@@ -205,10 +206,10 @@ def getDatasetDict(opt):
         video_name = df.video.values[i]
         video_info = database[video_name]
         video_new_info = {k: video_info[k] for k in keys}
-        if 'thumos' in opt['dataset']:
-            video_new_info['subset'] = video_name.split('_')[1]
-        else:
-            video_new_info['subset'] = df.subset.values[i]            
+        # if 'thumos' in opt['dataset']:
+        #     video_new_info['subset'] = video_name.split('_')[1]
+        # else:
+        #     video_new_info['subset'] = df.subset.values[i]            
         video_dict[video_name] = video_new_info
     return video_dict
 
@@ -313,17 +314,8 @@ def generate_features(opt, video_list, video_dict):
 
 
 def PGM_proposal_generation(opt):
-    if 'thumos' in opt['dataset']:
-        video_data = pd.read_csv(os.path.join(opt["video_info"], 'Full_Annotation.csv'))
-        video_list = sorted(list(set(video_data.video.values[:])))
-        # video_list = [k for k in video_list if 'video_validation_0000053' in k]
-        # print(video_list)
-    else:
-        video_data = load_json(opt["video_anno"])
-        video_list = sorted(video_data.keys())  #[:199]
-    
-    # NOTE: change this back.
-    # video_list = [k for k in video_list if '12.18.18' in k or '12.5.18' in k]
+    video_data = pd.read_csv(os.path.join(opt["video_info"], 'Full_Annotation.csv'))
+    video_list = sorted(list(set(video_data.video.values[:])))
     
     num_videos = len(video_list)
     num_threads = min(num_videos, opt['pgm_thread'])

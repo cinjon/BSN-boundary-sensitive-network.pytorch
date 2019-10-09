@@ -20,12 +20,15 @@ pem_dir = os.path.join(base_dir, 'peminf')
 pem_results_dir = os.path.join(pem_dir, 'results')
 postprocessed_results_dir = os.path.join(base_dir, 'postprocessing')
 
-regex = re.compile('.*ckpt.*-(\d{5}).*')
+regex = re.compile('.*(\d{5}).ckpt.*-(\d{5}).*')
 num_gpus = 0
 
-
 for pem_results_subdir in os.listdir(pem_results_dir):
-    counter = int(regex.match(pem_results_subdir).groups()[0])
+    c1, c2 = regex.match(pem_results_subdir).groups()
+    c1 = int(c1)
+    c2 = int(c2)
+    counter = c2
+    # counter = int(regex.match(pem_results_subdir).groups()[0])
     job = pemrun(find_counter=counter)
     job['do_eval_after_postprocessing'] = True
     job['num_gpus'] = num_gpus
@@ -42,6 +45,8 @@ for pem_results_subdir in os.listdir(pem_results_dir):
         _job['pem_inference_results_dir'] = os.path.join(pem_results_dir, dirkey)
         if 'thumos' in _job['dataset']:
             _job['video_info'] = _job['video_info'].replace('Full_Annotation.csv', 'thumos14_test_groundtruth.csv')
-        _job['name'] = '2019.09.18.%s.%s' % (pem_results_subdir, ckpt_subdir)
+        elif 'gymnastics' in _job['dataset']:
+            _job['video_info'] = _job['video_info'].replace('Full_Annotation.csv', 'ground_truth.csv')
+        _job['name'] = '%s.%s' % (pem_results_subdir, ckpt_subdir)
             
         func(_job, counter, email, code_directory)

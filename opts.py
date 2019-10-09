@@ -118,6 +118,7 @@ def parse_opt():
     parser.add_argument('--do_augment', action='store_true')
     parser.add_argument('--do_representation', action='store_true')
     parser.add_argument('--do_feat_conversion', action='store_true')
+    parser.add_argument('--do_gradient_checkpointing', action='store_true', default=False)    
     parser.add_argument(
         '--representation_module',
         type=str,

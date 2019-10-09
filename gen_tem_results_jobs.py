@@ -26,20 +26,23 @@ regex = re.compile('.*(\d{5}).*')
 matches = {
     485: 5, 465: 3, 567: 6, 483: 1, 487: 6, 473: 3, 461: 5, 557: 5,
     559: 1, 525: 3, 519: 2, 435: 4, 459: 1, 507: 3, 453: 1, 531: 4,
-    447: 4, 725: 4, 775: 6, 713: 6, 737: 4
+    447: 4, 725: 4, 775: 6, 713: 6, 737: 4,
+
+    861: 5, 872: 5, 856: 5, 828: 7, 847: 8, 836: 5, 822: 21, 835: 5,
+    906: 5, 898: 1,
+    950: 2, 943: 2, 928: 1, 976: 15, 1000: 14, 1005: 12, 1016: 9,
+    977: 3, 1040: 15
 }
 
 num_gpus = 4
-for ckpt_subdir in sorted(os.listdir(ckpt_directory)):
+for ns, ckpt_subdir in enumerate(sorted(os.listdir(ckpt_directory))):
     counter = int(regex.match(ckpt_subdir).groups()[0])
-    if counter in [775, 713, 737]:
-        continue
 
     _job = run(find_counter=counter)
     _job['num_gpus'] = num_gpus
     _job['num_cpus'] = num_gpus * 6 # 10
     _job['gb'] = 64 * num_gpus
-    _job['time'] = 14
+    _job['time'] = 12
     _job['tem_results_dir'] = tem_results_dir
     _job['mode'] = 'inference'
     
@@ -55,3 +58,4 @@ for ckpt_subdir in sorted(os.listdir(ckpt_directory)):
     print(sorted(_job.items()))
     fb_run_batch(_job, counter, email, code_directory)
     print('\n')
+print(ns)

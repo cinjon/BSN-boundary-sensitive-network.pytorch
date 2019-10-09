@@ -59,16 +59,18 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
             sys.exit(-1)
 
         # for thumosimages, input_data shape: [bs, 100, 3, 176, 320]
-        TEM_output = model(input_data)
+        TEM_output = model(input_data)            
         loss = TEM_loss_function(label_action, label_start, label_end,
                                  TEM_output, opt)
         l2 = sum([(W**2).sum() for W in model.module.parameters()])
         l2 = l2.sum() / 2
         l2 = opt['tem_l2_loss'] * l2
         loss['current_l2'] = l2
-        loss['total_loss'] += l2
-        total_loss = loss["total_loss"]
+        total_loss = loss['cost'] + l2
+        loss["total_loss"] = total_loss
         optimizer.zero_grad()
+        if opt['do_gradient_checkpointing']:
+            model.zero_grad()
         total_loss.backward()
         optimizer.step()
         global_step += 1
@@ -84,8 +86,8 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
             epoch_avg['current_lr'] = get_lr(optimizer)
             # print({k: type(v) for k, v in epoch_avg.items()})
             # print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
-            # s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
-            # print("TEM avg so far this epoch: %s." % s)
+            s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
+            print("TEM avg: %s." % s)
             if comet_exp:
                 with comet_exp.train():
                     comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
@@ -115,7 +117,7 @@ def test_TEM(data_loader, model, epoch, global_step, comet_exp, opt):
         if time.time() - opt['start_time'] > opt['time']*3600 - 10 and comet_exp is not None:
             comet_exp.end()
             sys.exit(-1)
-            
+
         TEM_output = model(input_data)
         loss = TEM_loss_function(label_action, label_start, label_end,
                                  TEM_output, opt)
@@ -123,7 +125,8 @@ def test_TEM(data_loader, model, epoch, global_step, comet_exp, opt):
         l2 = l2.sum() / 2
         l2 = opt['tem_l2_loss'] * l2
         loss['current_l2'] = l2
-        loss['total_loss'] += l2
+        total_loss = loss['cost'] + l2
+        loss["total_loss"] = total_loss
         for k in keys:
             if k == 'entries':
                 epoch_sums[k] += loss[k]
@@ -346,7 +349,7 @@ def BSN_Train_TEM(opt):
         comet_exp.log_parameters(opt)
         comet_exp.set_name(opt['name'])
 
-    test_TEM(test_loader, model, 0, 0, comet_exp, opt)
+    # test_TEM(test_loader, model, 0, 0, comet_exp, opt)
     for epoch in range(1, opt["tem_epoch"] + 1):
         global_step = train_TEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)    
@@ -452,14 +455,20 @@ def BSN_inference_TEM(opt):
 
     if opt['dataset'] == 'gymnastics':
         img_loading_func = get_img_loader(opt)
-        dataset = GymnasticsImages(opt, subset=opt['tem_results_subset'], img_loading_func=img_loading_func)
+        dataset = GymnasticsImages(
+            opt,
+            subset=opt['tem_results_subset'].title(),
+            img_loading_func=img_loading_func,
+            image_dir='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12'
+        )
     elif opt['dataset'] == 'thumosfeatures':
         feature_dirs = opt['feature_dirs'].split(',')
         dataset = ThumosFeatures(opt, subset=opt['tem_results_subset'].title(), feature_dirs=feature_dirs)
     elif opt['dataset'] == 'thumosimages':
         img_loading_func = get_img_loader(opt)
         dataset = ThumosImages(
-            opt, subset=opt['tem_results_subset'].title(),
+            opt,
+            subset=opt['tem_results_subset'].title(),
             img_loading_func=img_loading_func,
             image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_%s_tal.30' % opt['tem_results_subset'],
         )
@@ -484,7 +493,8 @@ def BSN_inference_TEM(opt):
     skip_videoframes = opt['skip_videoframes']
     print('About to start enumerating', flush=True)
     for test_idx, (index_list, input_data, video_name, snippets) in enumerate(test_loader):
-        print('Started enumerating!', flush=True)        
+        if test_idx == 0:
+            print('Started enumerating!', flush=True)        
         # The data should be coming back s.t. consecutive data are from the same video.
         # until there is a breakpoint and it starts a new video.
         TEM_output = model(input_data).detach().cpu().numpy()
@@ -493,67 +503,42 @@ def BSN_inference_TEM(opt):
         batch_end = TEM_output[:, 2, :]
         
         index_list = index_list.numpy()
-        # print("Size input_data: ", index_list.shape, len(video_name), batch_action.shape, flush=True)
         for batch_idx, full_idx in enumerate(index_list):
-            if 'gymnastics' in opt['dataset']:
-                video, frame = dataset.frame_list[full_idx]
-                if not current_video:
-                    print('First video: ', video, full_idx, flush=True)
-                    current_video = video
-                    current_data = [[] for _ in range(len(columns))]
-                elif video != current_video:
-                    print('Changing from video %s to video %s: %d' % (current_video, video, full_idx))
-                    video_result = np.stack(current_data, axis=1)
-                    video_df = pd.DataFrame(video_result, columns=columns)
-                    
-                    path = os.path.join(output_dir, '%s.csv' % current_video)
-                    video_df.to_csv(path, index=False)
-                    current_video = video
-                    current_data = [[] for _ in range(len(columns))]
-
-                start_frame = frame
-                end_frame = start_frame + opt['num_videoframes']*opt['skip_videoframes']
-                frames = range(start_frame, end_frame, opt['skip_videoframes'])
-                current_data[0].extend(batch_action[batch_idx])
-                current_data[1].extend(batch_start[batch_idx])
-                current_data[2].extend(batch_end[batch_idx])
-                current_data[3].extend(list(frames))
-            else:
-                item_video = video_name[batch_idx]
-                all_vids[item_video] += 1
-                item_snippets = snippets[batch_idx]
-                if not current_video:
-                    print('First video: ', item_video, flush=True)
-                    current_video = item_video
-                    current_start = defaultdict(float)
-                    current_end = defaultdict(float)
-                    current_action = defaultdict(float)    
-                    calc_time_list = defaultdict(int)
-                elif item_video != current_video:
-                    column_frames = sorted(calc_time_list.keys())
-                    column_action = [current_action[k] * 1. / calc_time_list[k] for k in column_frames]
-                    column_start = [current_start[k] * 1. / calc_time_list[k] for k in column_frames]
-                    column_end = [current_end[k] * 1. / calc_time_list[k] for k in column_frames]
-                    video_result = np.stack([column_action, column_start, column_end], axis=1)
-                    column_frames = np.reshape(column_frames, [-1, 1])
-
-                    video_result = np.concatenate([video_result, column_frames], axis=1)
-                    video_df = pd.DataFrame(video_result, columns=columns)
-                    path = os.path.join(output_dir, '%s.csv' % current_video)
-                    video_df.to_csv(path, index=False)
-                    current_video = item_video
-                    current_start = defaultdict(float)
-                    current_end = defaultdict(float)
-                    current_action = defaultdict(float)    
-                    calc_time_list = defaultdict(int)
-
-                for snippet_, action_, start_, end_ in zip(
-                        item_snippets, batch_action[batch_idx], batch_start[batch_idx], batch_end[batch_idx]):
-                    frame = snippet_.item()
-                    calc_time_list[frame] += 1
-                    current_action[frame] += action_
-                    current_start[frame] += start_
-                    current_end[frame] += end_
+            item_video = video_name[batch_idx]
+            all_vids[item_video] += 1
+            item_snippets = snippets[batch_idx]
+            if not current_video:
+                print('First video: ', item_video, flush=True)
+                current_video = item_video
+                current_start = defaultdict(float)
+                current_end = defaultdict(float)
+                current_action = defaultdict(float)    
+                calc_time_list = defaultdict(int)
+            elif item_video != current_video:
+                column_frames = sorted(calc_time_list.keys())
+                column_action = [current_action[k] * 1. / calc_time_list[k] for k in column_frames]
+                column_start = [current_start[k] * 1. / calc_time_list[k] for k in column_frames]
+                column_end = [current_end[k] * 1. / calc_time_list[k] for k in column_frames]
+                video_result = np.stack([column_action, column_start, column_end], axis=1)
+                column_frames = np.reshape(column_frames, [-1, 1])
+                
+                video_result = np.concatenate([video_result, column_frames], axis=1)
+                video_df = pd.DataFrame(video_result, columns=columns)
+                path = os.path.join(output_dir, '%s.csv' % current_video)
+                video_df.to_csv(path, index=False)
+                current_video = item_video
+                current_start = defaultdict(float)
+                current_end = defaultdict(float)
+                current_action = defaultdict(float)    
+                calc_time_list = defaultdict(int)
+                
+            for snippet_, action_, start_, end_ in zip(
+                    item_snippets, batch_action[batch_idx], batch_start[batch_idx], batch_end[batch_idx]):
+                frame = snippet_.item()
+                calc_time_list[frame] += 1
+                current_action[frame] += action_
+                current_start[frame] += start_
+                current_end[frame] += end_
                     
     if len(calc_time_list):
         column_frames = sorted(calc_time_list.keys())

@@ -274,7 +274,7 @@ def evaluation_proposal(opt):
     recall, average_recall, average_nr_proposals = average_recall_vs_nr_proposals(
         bsn_results, ground_truth)
     area_under_curve = np.trapz(average_recall, average_nr_proposals)
-    f = interp1d(average_nr_proposals, average_recall, axis=0)
+    f = interp1d(average_nr_proposals, average_recall, axis=0, fill_value="extrapolate")
     interp_results = [(k, f(k)) for k in [50, 100, 200, 500, 1000]]
     interp_str = ', '.join(['%d: %.4f' % (k, v) for k, v in interp_results])
 

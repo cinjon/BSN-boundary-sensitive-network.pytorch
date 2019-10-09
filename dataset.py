@@ -268,7 +268,7 @@ class ThumosFeatures(TEMDataset):
 class ThumosImages(TEMImages):
 
     def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None):
-        super(ThumosImages, self).__init__(opt, subset, feature_dirs=None, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)
+        super(ThumosImages, self).__init__(opt, subset, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)
 
     def _get_image_dir(self, video_name):
         return os.path.join(self.image_dir, video_name)        
@@ -398,6 +398,7 @@ class ProposalDataSet(data.Dataset):
     def _getDatasetDict(self):
         anno_df = pd.read_csv(self.video_info_path)
         anno_database = load_json(self.video_anno_path)
+        print(self.video_anno_path, self.video_info_path)
         self.video_dict = {}
         for i in range(len(anno_df)):
             video_name = anno_df.video.values[i]

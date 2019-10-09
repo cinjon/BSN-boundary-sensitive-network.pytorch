@@ -62,10 +62,9 @@ def TEM_loss_function(y_action, y_start, y_end, TEM_output, opt):
     loss_dict = TEM_loss_calc(anchors_action, anchors_start, anchors_end,
                               y_action, y_start, y_end, opt)
 
-    total_loss = 2 * loss_dict["action_loss"] + loss_dict["start_loss"] + loss_dict[
+    cost = 2 * loss_dict["action_loss"] + loss_dict["start_loss"] + loss_dict[
         "end_loss"]
-    loss_dict["total_loss"] = total_loss
-    loss_dict["cost"] = total_loss    
+    loss_dict["cost"] = cost
     return loss_dict
 
 
@@ -98,7 +97,7 @@ def PEM_loss_function(anchors_iou, match_iou, opt):
     # print('LOSS')
     # print(iou_loss.shape, iou_weights.shape)
     # print(iou_weights)
-    iou_loss = torch.sum(iou_loss * iou_weights) / torch.sum(iou_weights)
-    # iou_loss = torch.sum(iou_loss * iou_weights) / (1e-6 + torch.sum(iou_weights))
-
+    # iou_loss = torch.sum(iou_loss * iou_weights) / torch.sum(iou_weights)
+    iou_loss = torch.sum(iou_loss * iou_weights) / (1e-6 + torch.sum(iou_weights))
+    
     return {'iou_loss': iou_loss}

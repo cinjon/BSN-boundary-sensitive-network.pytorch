@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-THUMOS_OUTPUT_DIM = 64*44*80
+THUMOS_OUTPUT_DIM = 512*32*57 
 GYMNASTICS_OUTPUT_DIM = 407040
 
 
@@ -62,41 +62,36 @@ class Representation(nn.Module):
         # a straight shot linear layer. No good.
         
         self.opts = opts
-        self.inchannels = 32
         
         self.repr_conv1 = nn.Sequential(
-            nn.Conv2d(64, 32, kernel_size=7, stride=2, padding=3, bias=False),
-            nn.BatchNorm2d(32),
+            nn.Conv2d(512, 128, kernel_size=7, stride=2, padding=3, bias=False),
+            nn.BatchNorm2d(128),
             nn.ReLU(),
         )
-        self.repr_layer1 = self.make_layer(ResidualBlock, 32, 2, stride=2)
-        self.repr_layer2 = self.make_layer(ResidualBlock, 32, 2, stride=2)
+        self.repr_layer1 = self.make_layer(ResidualBlock, 128, 64, 2, stride=2)
+        self.repr_layer2 = self.make_layer(ResidualBlock, 64, 64, 2, stride=2)
         if opts['dataset'] == 'gymnastics':
-            self.fc_layer = nn.Linear(3584, 400)
+            self.fc_layer = nn.Linear(2048, 400)
         elif opts['dataset'] == 'thumosimages':
-            self.fc_layer = nn.Linear(1920, 400)
+            self.fc_layer = nn.Linear(2048, 400)
 
     def forward(self, representation):
-        print(representation.shape)
-        # thumosimages shape representation is [800, 64, 44, 80]
+        # thumosimages shape is [bs*nf, 512, 57, 32]
         out = self.repr_conv1(representation)
-        print(out.shape)
-        # thumosimages shape representation is [800, 32, 22, 40]
+        # thumosimages shape is [bs*nf, 128, 29, 16]
         out = self.repr_layer1(out)
-        # thumosimages shape representation is [800, 32, 11, 20]
+        # thumosimages shape is [bs*nf, 64, 15, 8]
         out = self.repr_layer2(out)
-        # thumosimages shape representation is [800, 32, 6, 10]
-        print(out.shape)
+        # thumosimages shape is [bs*nf, 64, 8, 4]
         out = out.view(out.shape[0], -1)
-        print(out.shape)
         out = self.fc_layer(out)
-        print(out.shape)
         return out
 
-    def make_layer(self, block, out_channels, num_blocks, stride):
+    def make_layer(self, block, initial_in, out_channels, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
+        in_channels = initial_in
         for stride in strides:
-            layers.append(block(self.inchannels, out_channels, stride))
-            self.inchannel = out_channels
+            layers.append(block(in_channels, out_channels, stride))
+            in_channels = out_channels
         return nn.Sequential(*layers)

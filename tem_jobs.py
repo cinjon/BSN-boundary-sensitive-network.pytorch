@@ -699,8 +699,11 @@ def run(find_counter=None):
 
     print("Counter: ", counter) 
     # The prior gymnastics models, now updated to work like the Thumos ones.
+    # These ... were correct buttttt the reported results are not because the cost was changed
+    # along with the train, so it's kinda hard to see what's going on. Going to do these over
+    # and at the same time reduce the learning rate.
     job = {
-        'name': '2019.10.02',
+        'name': '2019.10.03',
         'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',
         'dataset': 'gymnastics',
         'module': 'TEM',
@@ -718,12 +721,14 @@ def run(find_counter=None):
     num_gpus = 8
     for do_augment in [True, False]:
         for do_feat_conversion in [True, False]:
-            for tem_milestones in ['5,15', '5,20', '10,25']:
+            for tem_milestones in ['5,15', '5,20']:
                 for tem_step_gamma in [0.1, 0.5]:
-                    for tem_l2_loss in [0, 0.01, 0.005, 0.001]:
-                        for lr in [3e-4]:
+                    for lr in [1e-4, 3e-4]:
+                        for tem_l2_loss in [0, 0.01, 0.005, 0.001]:
                             for tem_weight_decay in [0, 1e-4]:
                                 if tem_weight_decay > 0 and tem_l2_loss > 0:
+                                    continue
+                                if tem_weight_decay == 0 and tem_l2_loss == 0:
                                     continue
                                 
                                 counter += 1
@@ -749,15 +754,69 @@ def run(find_counter=None):
                                 if find_counter == counter:
                                     return _job
                         
-                                if not find_counter:
-                                    func(_job, counter, email, code_directory)
-                                break
-                            break
-                        break
-                    break
-                break
-            break
-        break
+                                # if not find_counter:
+                                #     func(_job, counter, email, code_directory)
+
+
+    print("Counter: ", counter)  # 912
+    # The thumosimages and gymnastics models, but using CCC do_representation and only do_feat_conversion.
+    job = {
+        'name': '2019.10.04.ccc',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 10,
+        'tem_epoch': 30,
+        'do_representation': True,
+        'do_feat_conversion': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'representation_module': 'ccc',
+        'representation_checkpoint': '/checkpoint/cinjon/spaceofmotion/bsn/TimeCycleCkpt14.pth',
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+    }
+    num_gpus = 8
+    for dataset in ['gymnastics', 'thumosimages']:
+        for do_augment in [True, False]:
+            for tem_milestones in ['5,15', '5,20']:
+                for tem_step_gamma in [0.1, 0.5]:
+                    for lr in [1e-4, 3e-4]:
+                        for tem_l2_loss in [0, 0.01, 0.005, 0.001]:
+                            for tem_weight_decay in [0, 1e-4]:
+                                if tem_weight_decay > 0 and tem_l2_loss > 0:
+                                    continue
+                                if tem_weight_decay == 0 and tem_l2_loss == 0:
+                                    continue
+                                
+                                counter += 1
+                                _job = {k: v for k, v in job.items()}
+                                if dataset == 'thumosimages':
+                                    _job['video_info'] = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations'
+                                    
+                                batch_size = 2
+                                _job['tem_batch_size'] = batch_size
+                                _job['num_gpus'] = num_gpus
+                                
+                                _job['name'] = '%s-%05d' % (_job['name'], counter)
+                                _job['num_cpus'] = num_gpus * 10
+                                _job['gb'] = 64 * num_gpus
+                                
+                                _job['tem_training_lr'] = lr
+                                _job['tem_lr_milestones'] = tem_milestones
+                                _job['do_augment'] = do_augment
+                                _job['tem_step_gamma'] = tem_step_gamma
+                                _job['tem_l2_loss'] = tem_l2_loss
+                                _job['tem_weight_decay'] = tem_weight_decay
+                                _job['dataset'] = dataset
+                                _job['time'] = 16
+                        
+                                if find_counter == counter:
+                                    return _job
+                        
+                                # if not find_counter:
+                                    # func(_job, counter, email, code_directory)
+    print(counter)
 
     
 if __name__ == '__main__':
