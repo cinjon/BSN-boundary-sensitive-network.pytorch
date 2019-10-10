@@ -9,6 +9,7 @@ import torch
 import torchvision
 import torch.nn.parallel
 import torch.optim as optim
+from torchsummary import summary
 import numpy as np
 from tensorboardX import SummaryWriter
 import opts
@@ -29,10 +30,13 @@ def get_lr(optimizer):
     
 
 def compute_metrics(sums, loss, count):
+    print(loss)
+    print(sums)
     values = {k: loss[k].cpu().detach().numpy()
-              for k in sums if k != 'entries'}
-    if 'entries' in loss:
-        values['entries'] = loss['entries']
+              for k in sums if k not in ['entries', 'current_l2']}
+    for key in ['entries', 'current_l2']:
+        if key in loss:
+            values[key] = loss[key]
     new_sums = {k: v + sums[k] for k, v in values.items()}
     avg = {k: v / count for k, v in new_sums.items()}
     return new_sums, avg
@@ -62,8 +66,12 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         TEM_output = model(input_data)            
         loss = TEM_loss_function(label_action, label_start, label_end,
                                  TEM_output, opt)
-        l2 = sum([(W**2).sum() for W in model.module.parameters()])
-        l2 = l2.sum() / 2
+        wat = [W.cpu().detach().numpy() for W in model.module.parameters()]
+        watsq = [W**2 for W in wat]
+        watsqsum = [W.sum() for W in watsq]
+        l2 = sum(watsqsum) / 2
+        # l2 = sum([(W**2).sum() for W in model.module.parameters()])
+        # l2 = l2.sum() / 2
         l2 = opt['tem_l2_loss'] * l2
         loss['current_l2'] = l2
         total_loss = loss['cost'] + l2
@@ -271,7 +279,9 @@ def BSN_Train_TEM(opt):
     else:
         model = TEM(opt)
 
-    model = torch.nn.DataParallel(model).cuda()    
+    model = torch.nn.DataParallel(model).cuda()
+    summary(model, (25, 3, 256, 455))
+    
     global_step = 0
 
     print('    Total params: %.2fM' %

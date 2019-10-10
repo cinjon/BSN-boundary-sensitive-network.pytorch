@@ -22,6 +22,11 @@ def parse_opt():
         '--video_anno',
         type=str,
         default="./data/activitynet_annotations/anet_anno_action.json")
+    parser.add_argument(
+        '--train_video_file_list',
+        type=str,
+        default="./data/gymnastics_annotations/file_list.txt",
+        help='for use with video_dataset.py. should be a space delinated txt of <path to file> <label>.')
 
     # TEM Dataset settings
     parser.add_argument('--temporal_scale', type=int, default=100)
@@ -133,12 +138,12 @@ def parse_opt():
         '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth',
         help='the checkpoint for the underlying representation module.')
     parser.add_argument('--num_videoframes', type=int, default=100)
+    parser.add_argument('--dist_videoframes', type=int, default=50, help='the frame interval between each sequence.')
     parser.add_argument(
         '--skip_videoframes',
         type=int,
         default=5,
-        help=
-        'the number of video frames to skip in between each one. using 1 means that there is no skip.'
+        help='the number of video frames to skip in between each one. using 1 means that there is no skip.'
     )
 
     parser.add_argument('--log_to_comet', action='store_true', default=False)

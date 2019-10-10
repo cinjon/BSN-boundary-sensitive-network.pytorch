@@ -4,7 +4,7 @@ import torch
 from torch.autograd import Variable
 import torch.nn.functional as F
 import torch.nn as nn
-from torch.utils.checkpoint import checkpoint_sequential
+from torch.utils.checkpoint import checkpoint
 from torch.nn import init
 from representations.ccc.model import Model as CCCModel
 from representations.ccc.model import img_loading_func as ccc_img_loading_func
@@ -47,53 +47,6 @@ def partial_load(checkpoint_path, model):
     model_dict = model.state_dict()
     model_dict.update(pretrained_dict)
     model.load_state_dict(model_dict)
-
-
-# class TEMGC(torch.nn.Module):
-#     def __init__(self, opt):
-#         super(TEM, self).__init__()
-
-#         self.temporal_dim = opt["temporal_scale"]
-#         self.nonlinear_factor = opt["tem_nonlinear_factor"]
-#         self.batch_size = opt["tem_batch_size"]
-#         self.num_videoframes = opt["num_videoframes"]
-#         self.c_hidden = opt["tem_hidden_dim"]
-#         self.feat_dim = opt["tem_feat_dim"]
-
-#         key = '%s-%s' % (opt['representation_module'], opt['dataset'])
-#         model, representation, _, representation_dim = _get_module(key)
-#         self.features = nn.Sequential(OrderedDict([
-            
-#         self.representation_model = model(opt)
-#             if self.do_feat_conversion:
-#                 self.representation_mapping = representation(opt)
-#             else:
-#                 self.feat_dim = representation_dim
-#         print('Feature Dimension: ', self.feat_dim)
-                
-#         self.tem_best_loss = 10000000
-#         self.output_dim = 3
-
-#         self.conv1 = torch.nn.Conv1d(in_channels=self.feat_dim,
-#                                      out_channels=self.c_hidden,
-#                                      kernel_size=3,
-#                                      stride=1,
-#                                      padding=1,
-#                                      groups=1)
-#         self.conv2 = torch.nn.Conv1d(in_channels=self.c_hidden,
-#                                      out_channels=self.c_hidden,
-#                                      kernel_size=3,
-#                                      stride=1,
-#                                      padding=1,
-#                                      groups=1)
-#         self.conv3 = torch.nn.Conv1d(in_channels=self.c_hidden,
-#                                      out_channels=self.output_dim,
-#                                      kernel_size=1,
-#                                      stride=1,
-#                                      padding=0)
-
-#         if opt['tem_reset_params']:
-#             self.reset_params()
 
             
 class TEM(torch.nn.Module):
@@ -172,34 +125,46 @@ class TEM(torch.nn.Module):
         for i, m in enumerate(self.modules()):
             self.weight_init(m)
 
-    def forward(self, x):
-        if self.do_representation:
-            # Input is [bs, num_videoframes, 3, 256, 448]
-            with torch.no_grad():
-                x = self.representation_model(x)
-            if self.do_feat_conversion:
-                x = self.representation_mapping(x)
-                adj_batch_size, num_features = x.shape
-                # This might be different because of data parallelism
-                batch_size = int(adj_batch_size / self.num_videoframes)
-                x = x.view(batch_size, num_features, self.num_videoframes)
-            else:
-                adj_batch_size = x.shape[0]
-                batch_size = int(adj_batch_size / self.num_videoframes)
-                x = x.reshape(batch_size, -1, self.num_videoframes)
+    def _get_representation(self, x):
+        # Input is [bs, num_videoframes, 3, 256, 448]
+        with torch.no_grad():
+            x = self.representation_model(x)
+            x = x.detach()
+            
+        if self.do_feat_conversion:
+            x = self.representation_mapping(x)
+            adj_batch_size, num_features = x.shape
+            # This might be different because of data parallelism
+            batch_size = int(adj_batch_size / self.num_videoframes)
+            x = x.view(batch_size, num_features, self.num_videoframes)
         else:
-            # From the Thumos features...
+            adj_batch_size = x.shape[0]
+            batch_size = int(adj_batch_size / self.num_videoframes)
+            x = x.reshape(batch_size, -1, self.num_videoframes)
+        return x
+            
+    def forward(self, x):
+        print('Fwd: ', x.shape)
+        if self.do_representation:
+            x = self._get_representation(x)
+        else:
             x = x.transpose(1, 2)
 
         if self.do_gradient_checkpointing:
-            modules = [module for k, module in self._modules.items()]
-            segments = 2
-            x = checkpoint_sequential(modules, segments, x)
-        
-        x = F.relu(self.conv1(x))
-        x = F.relu(self.conv2(x))
-        x = torch.sigmoid(self.nonlinear_factor * self.conv3(x))
-        return x
+            print('bef gc: ', x.shape)
+            x = F.relu(checkpoint(self.conv1, x))
+            print('aft gc1: ', x.shape)
+            x = F.relu(checkpoint(self.conv2, x))
+            print('aft gc2: ', x.shape)
+            # x = self.conv3(x)
+            x = checkpoint(self.conv3, x)
+            print('aft gc3: ', x.shape)            
+        else:
+            x = F.relu(self.conv1(x))
+            x = F.relu(self.conv2(x))
+            x = self.conv3(x)
+            
+        return torch.sigmoid(self.nonlinear_factor * x)
 
 
 class PEM(torch.nn.Module):

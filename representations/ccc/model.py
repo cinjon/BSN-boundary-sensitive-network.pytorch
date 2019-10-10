@@ -135,6 +135,8 @@ class Model(nn.Module):
         new_shape = [batch_size * num_videoframes] + list(img_feat.shape[2:])
         img_feat = img_feat.reshape(*new_shape)
         # --> img_feat is [bs*num_videoframes, 512, 57, 32]
+        # ... TODO: We should probably be using the normalize here! havent done that yet
+        # x_norm = F.normalize(img_feat, p=2, dim=1)
         return img_feat
 
     @staticmethod
