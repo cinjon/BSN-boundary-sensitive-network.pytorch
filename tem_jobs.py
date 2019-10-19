@@ -816,7 +816,70 @@ def run(find_counter=None):
                         
                                 # if not find_counter:
                                     # func(_job, counter, email, code_directory)
-    print(counter)
+
+                                    
+    print("Counter: ", counter)  
+    # The ResNet jobs for thumosimages and gymnastics. This does not need a feat_conversion.
+    job = {
+        'name': '2019.10.19.resnet',
+        'video_info': 
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 10,
+        'tem_epoch': 30,
+        'do_representation': True,
+        'do_feat_conversion': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'representation_module': 'resnet',
+        'representation_checkpoint': None,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+    }
+    num_gpus = 8
+    for dataset in ['gymnastics', 'thumosimages']:
+        for do_augment in [True, False]:
+            for tem_milestones in ['5,15', '5,20']:
+                for tem_step_gamma in [0.1, 0.5]:
+                    for lr in [1e-4, 3e-4]:
+                        for tem_l2_loss in [0, 0.01, 0.005]:
+                            for tem_weight_decay in [0, 1e-4]:
+                                if tem_weight_decay > 0 and tem_l2_loss > 0:
+                                    continue
+                                if tem_weight_decay == 0 and tem_l2_loss == 0:
+                                    continue
+                                
+                                counter += 1
+                                _job = {k: v for k, v in job.items()}
+                                if dataset == 'thumosimages':
+                                    _job['video_info'] = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations'
+                                elif dataset == 'gymnastics':
+                                    _job['video_info'] = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations'
+                                else:
+                                    raise
+                                    
+                                _job['tem_batch_size'] = 4
+                                _job['num_gpus'] = num_gpus
+                                
+                                _job['name'] = '%s-%05d' % (_job['name'], counter)
+                                _job['num_cpus'] = num_gpus * 10
+                                _job['gb'] = 64 * num_gpus
+                                
+                                _job['tem_training_lr'] = lr
+                                _job['tem_lr_milestones'] = tem_milestones
+                                _job['do_augment'] = do_augment
+                                _job['tem_step_gamma'] = tem_step_gamma
+                                _job['tem_l2_loss'] = tem_l2_loss
+                                _job['tem_weight_decay'] = tem_weight_decay
+                                _job['dataset'] = dataset
+                                _job['time'] = 6
+                        
+                                if find_counter == counter:
+                                    return _job
+                        
+                                if not find_counter:
+                                    func(_job, counter, email, code_directory)
+    
 
     
 if __name__ == '__main__':

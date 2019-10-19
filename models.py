@@ -6,6 +6,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 from torch.utils.checkpoint import checkpoint
 from torch.nn import init
+
 from representations.ccc.model import Model as CCCModel
 from representations.ccc.model import img_loading_func as ccc_img_loading_func
 from representations.ccc.representation import Representation as CCCRepresentation
@@ -18,6 +19,12 @@ from representations.corrflow.representation import Representation as CorrFlowRe
 from representations.corrflow.representation import THUMOS_OUTPUT_DIM as CorrFlowThumosDim
 from representations.corrflow.representation import GYMNASTICS_OUTPUT_DIM as CorrFlowGymnasticsDim
 
+from representations.resnet.model import Model as ResnetModel
+from representations.resnet.model import img_loading_func as resnet_img_loading_func
+from representations.resnet.representation import Representation as ResnetRepresentation
+from representations.resnet.representation import THUMOS_OUTPUT_DIM as ResnetThumosDim
+from representations.resnet.representation import GYMNASTICS_OUTPUT_DIM as ResnetGymnasticsDim
+
 
 def _get_module(key):
     return {
@@ -29,8 +36,11 @@ def _get_module(key):
         'ccc-thumosimages':
             (CCCModel, CCCRepresentation, ccc_img_loading_func, CCCThumosDim),
         'ccc-gymnastics':
-            (CCCModel, CCCRepresentation, ccc_img_loading_func, CCCGymnasticsDim)
-        
+            (CCCModel, CCCRepresentation, ccc_img_loading_func, CCCGymnasticsDim),
+        'resnet-thumosimages':
+            (ResnetModel, ResnetRepresentation, resnet_img_loading_func, ResnetThumosDim),
+        'resnet-gymnastics':
+            (ResnetModel, ResnetRepresentation, resnet_img_loading_func, ResnetGymnasticsDim)
     }.get(key)
 
 
@@ -48,7 +58,7 @@ def partial_load(checkpoint_path, model):
     model_dict.update(pretrained_dict)
     model.load_state_dict(model_dict)
 
-            
+
 class TEM(torch.nn.Module):
 
     def __init__(self, opt):
@@ -144,21 +154,15 @@ class TEM(torch.nn.Module):
         return x
             
     def forward(self, x):
-        print('Fwd: ', x.shape)
         if self.do_representation:
             x = self._get_representation(x)
         else:
             x = x.transpose(1, 2)
 
         if self.do_gradient_checkpointing:
-            print('bef gc: ', x.shape)
             x = F.relu(checkpoint(self.conv1, x))
-            print('aft gc1: ', x.shape)
             x = F.relu(checkpoint(self.conv2, x))
-            print('aft gc2: ', x.shape)
-            # x = self.conv3(x)
             x = checkpoint(self.conv3, x)
-            print('aft gc3: ', x.shape)            
         else:
             x = F.relu(self.conv1(x))
             x = F.relu(self.conv2(x))

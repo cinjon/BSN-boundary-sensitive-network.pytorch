@@ -30,8 +30,6 @@ def get_lr(optimizer):
     
 
 def compute_metrics(sums, loss, count):
-    print(loss)
-    print(sums)
     values = {k: loss[k].cpu().detach().numpy()
               for k in sums if k not in ['entries', 'current_l2']}
     for key in ['entries', 'current_l2']:
@@ -273,14 +271,16 @@ def test_PEM(data_loader, model, epoch, global_step, comet_exp, opt):
 def BSN_Train_TEM(opt):
     if opt['do_representation']:
         model = TEM(opt)
-        partial_load(opt['representation_checkpoint'], model)
+        if opt['representation_checkpoint']:
+            partial_load(opt['representation_checkpoint'], model)
         for param in model.representation_model.parameters():
             param.requires_grad = False
+        print(len([p for p in model.representation_model.parameters()]))
     else:
         model = TEM(opt)
 
     model = torch.nn.DataParallel(model).cuda()
-    summary(model, (25, 3, 256, 455))
+    summary(model, (opt['num_videoframes']*opt['tem_batch_size'], 3, 224, 224))
     
     global_step = 0
 
