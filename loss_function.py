@@ -18,7 +18,7 @@ def bi_loss(scores, anchors, opt):
     ratio = (num_entries + 1) / (num_positive + 1)
     ratio += 1e-6
     ###
-    ratio = num_entries / num_positive 
+    # ratio = num_entries / num_positive 
 
     coef_0 = 0.5 * (ratio) / (ratio - 1)
     coef_1 = coef_0 * (ratio - 1)

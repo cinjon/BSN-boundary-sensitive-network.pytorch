@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 THUMOS_OUTPUT_DIM = 64*44*80
 GYMNASTICS_OUTPUT_DIM = 407040
+ACTIVITYNET_OUTPUT_DIM = 307200
 
 
 class ResidualBlock(nn.Module):
@@ -75,22 +76,19 @@ class Representation(nn.Module):
             self.fc_layer = nn.Linear(3584, 400)
         elif opts['dataset'] == 'thumosimages':
             self.fc_layer = nn.Linear(1920, 400)
+        elif opts['dataset'] == 'activitynet':
+            self.fc_layer = nn.Linear(2560, 400)
 
     def forward(self, representation):
-        print(representation.shape)
         # thumosimages shape representation is [800, 64, 44, 80]
         out = self.repr_conv1(representation)
-        print(out.shape)
         # thumosimages shape representation is [800, 32, 22, 40]
         out = self.repr_layer1(out)
         # thumosimages shape representation is [800, 32, 11, 20]
         out = self.repr_layer2(out)
         # thumosimages shape representation is [800, 32, 6, 10]
-        print(out.shape)
         out = out.view(out.shape[0], -1)
-        print(out.shape)
         out = self.fc_layer(out)
-        print(out.shape)
         return out
 
     def make_layer(self, block, out_channels, num_blocks, stride):

@@ -25,13 +25,17 @@ def parse_opt():
     parser.add_argument(
         '--train_video_file_list',
         type=str,
-        default="./data/gymnastics_annotations/file_list.txt",
-        help='for use with video_dataset.py. should be a space delinated txt of <path to file> <label>.')
+        default="./data/activitynet_annotations/video_dataset_files/train_keys_split.txt",
+        help='for use with video_dataset.py. should be a space delinated txt of <path to file> <key into annotation dataframe>.')
     parser.add_argument(
-        '--initial_prefetch_size',
+        '--val_video_file_list',
+        type=str,
+        default="./data/activitynet_annotations/video_dataset_files/val_keys_split.txt",
+        help='for use with video_dataset.py. should be a space delinated txt of <path to file> <key into annotation dataframe>.')
+    parser.add_argument(
+        '--fps',
         type=int,
-        default=11,
-        help='for use with video_dataset.py.')
+        default=24)
 
     # TEM Dataset settings
     parser.add_argument('--temporal_scale', type=int, default=100)
@@ -142,6 +146,11 @@ def parse_opt():
         default=None,
         help='the checkpoint for the underlying representation module.')
     # '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth',
+    parser.add_argument(
+        '--representation_tags',
+        type=str,
+        default=None,
+        help='the path to the tags. only used for amdim')
     parser.add_argument('--num_videoframes', type=int, default=100)
     parser.add_argument('--dist_videoframes', type=int, default=50, help='the frame interval between each sequence.')
     parser.add_argument(

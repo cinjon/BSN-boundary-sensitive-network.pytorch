@@ -30,10 +30,13 @@ num_gpus = 1 # NOTE
 
 
 def run(find_counter=None):
-    counter = 242 # NOTE: adjust each time
+    counter = 403 # NOTE: adjust each time
 
     for tem_results_subdir in os.listdir(tem_results_dir):
         _counter = int(regex.match(tem_results_subdir).groups()[0])
+        if _counter in [1180, 1156, 1147, 1252]:
+            continue
+
         job = temrun(find_counter=_counter)
         for key in list(job.keys()):
             if key.startswith('tem'):
@@ -90,7 +93,7 @@ def run(find_counter=None):
                                     func(__job, counter, email, code_directory)
                                 elif counter == find_counter:
                                     return __job
-    print(counter)
+    print(counter) # ended w 451
     
 if __name__ == '__main__':
     run()

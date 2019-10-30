@@ -6,6 +6,7 @@ import torch.nn.functional as F
 
 THUMOS_OUTPUT_DIM = 1000
 GYMNASTICS_OUTPUT_DIM = 1000
+ACTIVITYNET_OUTPUT_DIM = 1000
 
 
 class ResidualBlock(nn.Module):
@@ -73,6 +74,8 @@ class Representation(nn.Module):
         if opts['dataset'] == 'gymnastics':
             self.fc_layer = nn.Linear(2048, 400)
         elif opts['dataset'] == 'thumosimages':
+            self.fc_layer = nn.Linear(2048, 400)
+        elif opts['dataset'] == 'activitynet':
             self.fc_layer = nn.Linear(2048, 400)
 
     def forward(self, representation):

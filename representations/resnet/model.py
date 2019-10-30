@@ -10,6 +10,23 @@ import torchvision.transforms as transforms
 from torchvision.models import resnet50
 
 from . import resnet as resnet_model
+from .. import video_transforms, functional_video
+
+
+transforms_augment_video = transforms.Compose([
+    video_transforms.ToTensorVideo(),
+    video_transforms.RandomResizedCropVideo(224),
+    video_transforms.RandomHorizontalFlipVideo(),
+    video_transforms.NormalizeVideo(mean=[0.485, 0.456, 0.406],
+                                    std=[0.229, 0.224, 0.225]),
+])
+transforms_regular_video = transforms.Compose([
+    video_transforms.ToTensorVideo(),
+    video_transforms.ResizeVideo((256, 256), interpolation='nearest'),
+    video_transforms.CenterCropVideo(224),
+    video_transforms.NormalizeVideo(mean=[0.485, 0.456, 0.406],
+                                    std=[0.229, 0.224, 0.225]),
+])
 
 
 def im_to_torch(img):
@@ -66,6 +83,7 @@ class Model(nn.Module):
         # video feature clip1
         batch_size, num_videoframes, ch, h, w = imgs.shape
         imgs = imgs.view(batch_size * num_videoframes, ch, h, w)
+        # imgs = imgs.contiguous()
         # now imgs is [bs * nf, ch, h, w]
         imgs = self.resnet(imgs)
         # now img_feat is [bs * nf, 1000]

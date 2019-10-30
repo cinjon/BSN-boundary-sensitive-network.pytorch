@@ -31,13 +31,17 @@ matches = {
     861: 5, 872: 5, 856: 5, 828: 7, 847: 8, 836: 5, 822: 21, 835: 5,
     906: 5, 898: 1,
     950: 2, 943: 2, 928: 1, 976: 15, 1000: 14, 1005: 12, 1016: 9,
-    977: 3, 1040: 15
+    977: 3, 1040: 15,
+    1128: 3, 1115: 2, 1106: 8, 1094: 8, 1117: 28, 1123: 2, 1095: 2, 1051: 1, 1045: 1, 1063: 1, 1081: 1,
+    1180: 1, 1156: 1, 1147: 2, 1188: 3, 1186: 3, 1201: 4, 1228: 3,
+    1286: 2, 1319: 1, 1252: 13
 }
+
 
 num_gpus = 4
 for ns, ckpt_subdir in enumerate(sorted(os.listdir(ckpt_directory))):
     counter = int(regex.match(ckpt_subdir).groups()[0])
-
+    print(counter, ckpt_subdir)
     _job = run(find_counter=counter)
     _job['num_gpus'] = num_gpus
     _job['num_cpus'] = num_gpus * 6 # 10

@@ -25,6 +25,17 @@ import math
 from .submodule import ResNet18
 
 import numpy as np
+from .. import video_transforms, functional_video
+
+
+# NOTE: This should have ColorJitter. But it does not :(.
+transforms_augment_video = transforms.Compose([
+    video_transforms.ToTensorVideo(),
+    video_transforms.RandomHorizontalFlipVideo(p=0.5),
+])
+transforms_regular_video = transforms.Compose([
+    video_transforms.ToTensorVideo(),
+])
 
 
 def rgb_preprocess_jitter(image):

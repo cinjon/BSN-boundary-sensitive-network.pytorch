@@ -22,6 +22,136 @@ anno_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytor
 func = fb_run_batch
 
 
+def do_activitynet_fb_jobarray(counter, job, representation_module, time, find_counter):
+    num_gpus = 8
+    num_cpus = num_gpus * 10
+    gb = num_gpus * 64
+    directory = '/checkpoint/cinjon/spaceofmotion'
+    slurm_logs = os.path.join(directory, 'bsn', 'slurm_logs')
+    slurm_scripts = os.path.join(directory, 'bsn', 'slurm_scripts')
+    comet_dir = os.path.join(directory, 'bsn', 'comet')
+    job['local_comet_dir'] = os.path.join(comet_dir, job['module'].lower())
+    job['time'] = time
+    job['data_workers'] = min(int(2.5 * num_gpus), num_cpus - num_gpus)
+    job['data_workers'] = max(job['data_workers'], 12)
+    
+    representation_checkpoint, representation_tags = _get_representation_info(representation_module)
+    jobarray = []
+    for do_feat_conversion in [False, True]:
+        for do_augment in [True, False]:
+            do_gradient_checkpointing = False
+            if do_feat_conversion:
+                if representation_module == 'resnet':
+                    continue
+            else:
+                if representation_module == 'ccc':
+                    continue
+                elif representation_module == 'amdim':
+                    do_gradient_checkpointing = True
+
+            for tem_milestones in ['5,15', '5,20']:
+                for tem_step_gamma in [0.1, 0.5]:
+                    for lr in [1e-4, 3e-4]:
+                        for tem_l2_loss in [0, 0.01, 0.005]:
+                            for tem_weight_decay in [0, 1e-4]:
+                                if tem_weight_decay > 0 and tem_l2_loss > 0:
+                                    continue
+                                if tem_weight_decay == 0 and tem_l2_loss == 0:
+                                    continue
+                                
+                                counter += 1
+                                
+                                _job = {k: v for k, v in job.items()}
+                                _job['counter'] = counter
+                                tem_batch_size = 4
+                                if representation_module == 'corrflow':
+                                    tem_batch_size = 1
+                                elif not do_feat_conversion:
+                                    tem_batch_size = 2
+                                    
+                                _job['tem_batch_size'] = tem_batch_size
+                                _job['do_gradient_checkpointing'] = do_gradient_checkpointing
+                                _job['representation_module'] = representation_module
+                                if representation_tags:
+                                    _job['representation_tags'] = representation_tags
+                                if representation_checkpoint:
+                                    _job['representation_checkpoint'] = representation_checkpoint
+                                _job['num_gpus'] = num_gpus
+                                _job['name'] = '%s.%s-%05d' % (_job['name'], representation_module, counter)
+                                _job['num_cpus'] = num_gpus * 10
+                                _job['gb'] = 64 * num_gpus
+                                
+                                _job['tem_training_lr'] = lr
+                                _job['tem_lr_milestones'] = tem_milestones
+                                _job['do_augment'] = do_augment
+                                _job['tem_step_gamma'] = tem_step_gamma
+                                _job['tem_l2_loss'] = tem_l2_loss
+                                _job['tem_weight_decay'] = tem_weight_decay
+                                _job['do_feat_conversion'] = do_feat_conversion
+
+                                if find_counter == counter:
+                                    return counter, _job
+                                jobarray.append(counter)
+                                
+    if not find_counter:
+        print("Size: ", len(jobarray))
+        
+        jobname = 'temtr.anet.%s.%dhr.cnt%d' % (representation_module, time, counter)
+        jobcommand = "python main.py --mode jobarray_train"
+        print(jobcommand, " /.../ ", jobname)
+
+        slurmfile = os.path.join(slurm_scripts, jobname + '.slurm')
+        hours = int(time)
+        minutes = int((time - hours) * 60)
+        with open(slurmfile, 'w') as f:
+            f.write("#!/bin/bash\n")
+            f.write("#SBATCH --job-name=%s\n" % jobname)
+            f.write("#SBATCH --array=%s\n" % ','.join([str(c) for c in jobarray]))
+            f.write("#SBATCH --mail-type=END,FAIL\n")
+            f.write("#SBATCH --mail-user=cinjon@nyu.edu\n")
+            f.write("#SBATCH --cpus-per-task=%d\n" % num_cpus)
+            f.write("#SBATCH --time=%d:%d:00\n" % (hours, minutes))
+            f.write("#SBATCH --gres=ntasks-per-node=1\n")
+            f.write("#SBATCH --gres=gpu:%d\n" % num_gpus)
+            f.write("#SBATCH --mem=%dG\n" % gb)
+            f.write("#SBATCH --nodes=%d\n" % 1)
+            f.write("#SBATCH --output=%s\n" % os.path.join(
+                slurm_logs, jobname + ".%A.%a.out"))
+            f.write("#SBATCH --error=%s\n" % os.path.join(
+                slurm_logs, jobname + ".%A.%a.err"))
+
+            f.write("module purge" + "\n")
+            f.write("module load cuda/10.0\n")            
+            f.write("source activate onoff\n")
+            f.write("SRCDIR=%s\n" % code_directory)
+            f.write("cd ${SRCDIR}\n")
+            f.write(jobcommand + "\n")
+
+        s = "sbatch %s" % os.path.join(slurm_scripts, jobname + ".slurm")
+        if time == 6 and representation_module == 'resnet':
+            pass
+        else:
+            pass
+            # os.system(s)
+    return counter, None
+
+
+def _get_representation_info(module):
+    return {
+        'corrflow': (
+            '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth', None
+        ),
+        'resnet': (None, None),
+        'ccc': (
+            '/checkpoint/cinjon/spaceofmotion/bsn/TimeCycleCkpt14.pth', None
+        ),
+        'amdim': (
+            '/checkpoint/cinjon/amdim/_ckpt_epoch_434.ckpt',
+            '/checkpoint/cinjon/amdim/meta_tags.csv'
+        ),
+    }.get(module)
+
+
 def run(find_counter=None):
     counter = 0
     job = {
@@ -697,7 +827,7 @@ def run(find_counter=None):
                             #     func(_job, counter, email, code_directory)
                                 
 
-    print("Counter: ", counter) 
+    # print("Counter: ", counter) 
     # The prior gymnastics models, now updated to work like the Thumos ones.
     # These ... were correct buttttt the reported results are not because the cost was changed
     # along with the train, so it's kinda hard to see what's going on. Going to do these over
@@ -758,7 +888,7 @@ def run(find_counter=None):
                                 #     func(_job, counter, email, code_directory)
 
 
-    print("Counter: ", counter)  # 912
+    # print("Counter: ", counter)  # 912
     # The thumosimages and gymnastics models, but using CCC do_representation and only do_feat_conversion.
     job = {
         'name': '2019.10.04.ccc',
@@ -818,21 +948,19 @@ def run(find_counter=None):
                                     # func(_job, counter, email, code_directory)
 
                                     
-    print("Counter: ", counter)  
+    # print("Counter: ", counter)   # 1040
     # The ResNet jobs for thumosimages and gymnastics. This does not need a feat_conversion.
     job = {
         'name': '2019.10.19.resnet',
-        'video_info': 
         'module': 'TEM',
         'mode': 'train',
         'tem_compute_loss_interval': 10,
         'tem_epoch': 30,
         'do_representation': True,
-        'do_feat_conversion': True,
+        'do_feat_conversion': False,
         'num_videoframes': 100,
         'skip_videoframes': 5,
         'representation_module': 'resnet',
-        'representation_checkpoint': None,
         'checkpoint_path': checkpoint_path,
         'tem_nonlinear_factor': 0.1,
     }
@@ -850,6 +978,7 @@ def run(find_counter=None):
                                     continue
                                 
                                 counter += 1
+                                
                                 _job = {k: v for k, v in job.items()}
                                 if dataset == 'thumosimages':
                                     _job['video_info'] = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations'
@@ -877,10 +1006,109 @@ def run(find_counter=None):
                                 if find_counter == counter:
                                     return _job
                         
-                                if not find_counter:
-                                    func(_job, counter, email, code_directory)
+                                # if not find_counter:
+                                #     func(_job, counter, email, code_directory)
     
 
+    # The AMDIM jobs for thumosimages and gymnastics, and with DFC and NFC.
+    # print('Coutner: ', counter) # 1136
+    job = {
+        'name': '2019.10.25.amdim',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 10,
+        'tem_epoch': 30,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'representation_module': 'amdim',
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'representation_checkpoint': '/checkpoint/cinjon/amdim/_ckpt_epoch_434.ckpt',
+        'representation_tags': '/checkpoint/cinjon/amdim/meta_tags.csv'
+    }
+    num_gpus = 8
+    for dataset in ['thumosimages', 'gymnastics']:
+        for do_feat_conversion in [False, True]:
+            for do_augment in [True, False]:
+                for tem_milestones in ['5,15', '5,20']:
+                    for tem_step_gamma in [0.1, 0.5]:
+                        for lr in [1e-4, 3e-4]:
+                            for tem_l2_loss in [0, 0.01, 0.005]:
+                                for tem_weight_decay in [0, 1e-4]:
+                                    if tem_weight_decay > 0 and tem_l2_loss > 0:
+                                        continue
+                                    if tem_weight_decay == 0 and tem_l2_loss == 0:
+                                        continue
+                                
+                                    counter += 1
+                                
+                                    _job = {k: v for k, v in job.items()}
+                                    if dataset == 'thumosimages':
+                                        _job['video_info'] = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations'
+                                    elif dataset == 'gymnastics':
+                                        _job['video_info'] = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations'
+                                    else:
+                                        raise
+                                    
+                                    if do_feat_conversion:
+                                        _job['tem_batch_size'] = 4
+                                    else:
+                                        _job['do_gradient_checkpointing'] = True
+                                        _job['tem_batch_size'] = 2
+                                        
+                                    _job['num_gpus'] = num_gpus
+                                
+                                    _job['name'] = '%s-%05d' % (_job['name'], counter)
+                                    _job['num_cpus'] = num_gpus * 10
+                                    _job['gb'] = 64 * num_gpus
+                                    
+                                    _job['tem_training_lr'] = lr
+                                    _job['tem_lr_milestones'] = tem_milestones
+                                    _job['do_augment'] = do_augment
+                                    _job['tem_step_gamma'] = tem_step_gamma
+                                    _job['tem_l2_loss'] = tem_l2_loss
+                                    _job['tem_weight_decay'] = tem_weight_decay
+                                    _job['dataset'] = dataset
+                                    _job['do_feat_conversion'] = do_feat_conversion
+                                    _job['time'] = 8
+                                    
+                                    if find_counter == counter:
+                                        return _job
+                                    
+                                    if not find_counter:
+                                        if dataset == 'gymnastics':
+                                            func(_job, counter, email, code_directory)
+                                            return
+
+
+    job = {
+        'name': '2019.10.28.activitynet',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'dist_videoframes': 400,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'activitynet',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/video_info_with_subset.fps24.csv',
+        'train_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/train_keys_split.txt',
+        'val_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/val_keys_split.txt',
+    }
+    num_gpus = 8
+    print('Counter Before ActivityNet: ', counter)
+    for representation_module in ['resnet', 'corrflow', 'ccc', 'amdim']:
+        for time in [6, 36]:
+            counter, _job = do_activitynet_fb_jobarray(
+                counter, job, representation_module, time, find_counter=find_counter)
+            if find_counter and _job:
+                return counter, _job
+
+                                    
     
 if __name__ == '__main__':
     run()

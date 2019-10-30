@@ -3,6 +3,7 @@ from collections import defaultdict
 import json
 import os
 from pathlib import Path
+import random
 import re
 import pickle
 from urllib.parse import unquote
@@ -11,6 +12,7 @@ import numpy as np
 import pandas as pd
 import torch.utils.data as data
 import torch
+from torchvision.datasets.video_utils import VideoClips
 
 
 def load_json(file):
@@ -24,6 +26,7 @@ def ioa_with_anchors(anchors_min, anchors_max, box_min, box_max):
     int_xmin = np.maximum(anchors_min, box_min)
     int_xmax = np.minimum(anchors_max, box_max)
     inter_len = np.maximum(int_xmax - int_xmin, 0.)
+    # print(anchors_min, anchors_max, box_min, box_max, int_xmin, int_xmax, inter_len)
     scores = np.divide(inter_len, len_anchors)
     return scores
     
@@ -47,7 +50,7 @@ class TEMDataset(data.Dataset):
         self.fps = fps
         
         # e.g. /data/thumos14_annotations/Test_Annotation.csv
-        self.video_info_path = os.path.join(opt["video_info"], '%s_Annotation.csv' % self.subset)
+        self.video_info_path = opt["video_info"]        
         self._get_data()
 
     def _get_data(self):        
@@ -325,6 +328,198 @@ class GymnasticsImages(TEMImages):
         return os.path.join(self.image_dir, target_dir)
         
 
+class VideoDataset(data.Dataset):
+    def __init__(self, opt, transforms, subset, fraction=1.):
+        """file_list is a list of [/path/to/mp4 key-to-df]"""
+        self.subset = subset
+        self.video_info_path = opt["video_info"]
+        self.mode = opt["mode"]
+        self.boundary_ratio = opt['boundary_ratio']
+        self.skip_videoframes = opt['skip_videoframes']
+        self.num_videoframes = opt['num_videoframes']
+        self.dist_videoframes = opt['dist_videoframes']
+        self.fraction = fraction
+
+        subset_translate = {'train': 'training', 'val': 'validation'}
+        self.anno_df = pd.read_csv(self.video_info_path)
+        print(self.anno_df)
+        print(subset, subset_translate.get(subset))
+        self.anno_df = self.anno_df[self.anno_df.subset == subset_translate[subset]]
+        print(self.anno_df)
+
+        file_loc = opt['%s_video_file_list' % subset]
+        with open(file_loc, 'r') as f:
+            lines = [k.strip() for k in f.readlines()]
+            
+        file_list = [k.split(' ')[0] for k in lines]
+        keys_list = [k.split(' ')[1][:-4] for k in lines]
+        print(keys_list[:5])
+        valid_key_indices = [num for num, k in enumerate(keys_list) \
+                             if k in set(self.anno_df.video.unique())]
+        self.keys_list = [keys_list[num] for num in valid_key_indices]
+        self.file_list = [file_list[num] for num in valid_key_indices]
+        print('Number of indices: ', len(valid_key_indices), subset)
+
+        video_info_dir = '/'.join(self.video_info_path.split('/')[:-1])
+        clip_length_in_frames = self.num_videoframes * self.skip_videoframes
+        frames_between_clips = self.dist_videoframes
+        saved_video_clips = os.path.join(
+            video_info_dir, 'video_clips.%s.%df.%ds.pkl' % (
+                subset, clip_length_in_frames, frames_between_clips))
+        if os.path.exists(saved_video_clips):
+            print('Path Exists for video_clips: ', saved_video_clips)
+            self.video_clips = pickle.load(open(saved_video_clips, 'rb'))
+        else:
+            print('Path does NOT exist for video_clips: ', saved_video_clips)            
+            self.video_clips = VideoClips(
+                self.file_list, clip_length_in_frames=clip_length_in_frames,
+                frames_between_clips=frames_between_clips, frame_rate=opt['fps'])
+            pickle.dump(self.video_clips, open(saved_video_clips, 'wb'))
+        print('Length of vid clips: ', self.video_clips.num_clips(), self.subset)
+
+        if self.mode == "train":
+            self.datums = self._retrieve_valid_datums()
+            self.datum_indices = list(range(len(self.datums)))
+            if fraction < 1:
+                print('DOING the subset dataset on %s ...' % subset)
+                self._subset_dataset(fraction)
+            print('Len of %s datums: ' % subset, len(self.datum_indices))
+                
+        self.transforms = transforms
+
+    def _subset_dataset(self, fraction):
+        num_datums = int(len(self.datums) * fraction)
+        self.datum_indices = list(range(num_datums))
+        random.shuffle(self.datum_indices)
+        self.datum_indices = self.datum_indices[:num_datums]
+    
+    def __len__(self):
+        return len(self.datum_indices)
+
+    def _retrieve_valid_datums(self):
+        video_info_dir = '/'.join(self.video_info_path.split('/')[:-1])
+        num_clips = self.video_clips.num_clips()
+        saved_data_path = os.path.join(video_info_dir, 'saved.%s.nf%d.sf%d.df%d.vid%d.pkl' % (
+            self.subset, self.num_videoframes, self.skip_videoframes, self.dist_videoframes,
+            num_clips
+            )
+        )
+        print(saved_data_path)
+        if os.path.exists(saved_data_path):
+            print('Got saved data.')
+            with open(saved_data_path, 'rb') as f:
+                return pickle.load(f)
+                    
+        ret = []
+        for flat_index in range(num_clips):
+            video_idx, clip_idx = self.video_clips.get_clip_location(flat_index)
+            start_frame = clip_idx * self.dist_videoframes
+            snippets = [start_frame + self.skip_videoframes*i
+                        for i in range(self.num_videoframes)]
+            key = self.keys_list[video_idx]
+            training_anchors = self._get_training_anchors(snippets, key)
+            if not training_anchors:
+                continue
+
+            anchor_xmins, anchor_xmaxs, gt_bbox = training_anchors
+            ret.append((flat_index, anchor_xmins, anchor_xmaxs, gt_bbox))
+
+        print('Size of data: ', len(ret), flush=True)
+        with open(saved_data_path, 'wb') as f:
+            pickle.dump(ret, f)
+        print('Dumped data...')
+        return ret
+    
+    def __getitem__(self, index):
+        # The video_data retrieved has shape [nf * sf, w, h, c].
+        # We want to pick every sf'th frame out of that.
+        if self.mode == "train":
+            datum_index = self.datum_indices[index]
+            flat_index, anchor_xmin, anchor_xmax, gt_bbox = self.datums[datum_index]
+        video, _, _, video_idx = self.video_clips.get_clip(flat_index)
+            
+        video_data = video[0::self.skip_videoframes]
+        video_data = self.transforms(video_data)
+        video_data = torch.transpose(video_data, 0, 1)
+
+        _, clip_idx = self.video_clips.get_clip_location(index)
+        start_frame = clip_idx * self.dist_videoframes
+        snippets = [start_frame + self.skip_videoframes*i
+                    for i in range(self.num_videoframes)]
+        if self.mode == "train":
+            match_score_action, match_score_start, match_score_end = self._get_train_label(gt_bbox, anchor_xmin, anchor_xmax)
+            return video_data, match_score_action, match_score_start, match_score_end
+        else:
+            video_name = self.keys_list[video_idx]
+            return flat_index, video_data, video_name, snippets
+
+    def _get_training_anchors(self, snippets, key):
+        tmp_anchor_xmins = np.array(snippets) - self.skip_videoframes/2.
+        tmp_anchor_xmaxs = np.array(snippets) + self.skip_videoframes/2.
+        tmp_gt_bbox = []
+        tmp_ioa_list = []
+        anno_df_video = self.anno_df[self.anno_df.video == key]
+        gt_xmins = anno_df_video.startFrame.values[:]
+        gt_xmaxs = anno_df_video.endFrame.values[:]
+        if len(gt_xmins) == 0:
+            print('Yo wat gt_xmins: ', key)
+            raise
+        
+        for idx in range(len(gt_xmins)):
+            tmp_ioa = ioa_with_anchors(gt_xmins[idx], gt_xmaxs[idx],
+                                       tmp_anchor_xmins[0],
+                                       tmp_anchor_xmaxs[-1])
+            tmp_ioa_list.append(tmp_ioa)
+            if tmp_ioa > 0:
+                tmp_gt_bbox.append([gt_xmins[idx], gt_xmaxs[idx]])
+
+        # print(len(tmp_gt_bbox), max(tmp_ioa_list), tmp_ioa_list)
+        if len(tmp_gt_bbox) > 0:
+            # NOTE: Removed the threshold of 0.9... ruh roh.
+            return tmp_anchor_xmins, tmp_anchor_xmaxs, tmp_gt_bbox
+        return None
+        
+    def _get_train_label(self, gt_bbox, anchor_xmin, anchor_xmax):
+        gt_bbox = np.array(gt_bbox)
+        gt_xmins = gt_bbox[:, 0]
+        gt_xmaxs = gt_bbox[:, 1]
+        # same as gt_len but using the thumos code repo :/.
+        gt_duration = gt_xmaxs - gt_xmins
+        gt_duration_boundary = np.maximum(
+            self.skip_videoframes, gt_duration * self.boundary_ratio)
+        gt_start_bboxs = np.stack(
+            (gt_xmins - gt_duration_boundary / 2, gt_xmins + gt_duration_boundary / 2),
+            axis=1
+        )
+        gt_end_bboxs = np.stack(
+            (gt_xmaxs - gt_duration_boundary / 2, gt_xmaxs + gt_duration_boundary / 2),
+            axis=1
+        )
+
+        match_score_action = [
+            np.max(
+                ioa_with_anchors(anchor_xmin[jdx], anchor_xmax[jdx],
+                                       gt_xmins, gt_xmaxs))
+            for jdx in range(len(anchor_xmin))
+        ]
+
+        match_score_start = [
+            np.max(
+                ioa_with_anchors(anchor_xmin[jdx], anchor_xmax[jdx],
+                                       gt_start_bboxs[:, 0], gt_start_bboxs[:, 1]))
+            for jdx in range(len(anchor_xmin))
+        ]
+
+        match_score_end = [
+            np.max(
+                ioa_with_anchors(anchor_xmin[jdx], anchor_xmax[jdx],
+                                       gt_end_bboxs[:, 0], gt_end_bboxs[:, 1]))
+            for jdx in range(len(anchor_xmin))
+        ]
+        
+        return torch.Tensor(match_score_action), torch.Tensor(match_score_start), torch.Tensor(match_score_end)        
+
+    
 class ProposalSampler(data.WeightedRandomSampler):
     def __init__(self, proposals, frame_list, max_zero_weight=0.25):
         """
@@ -558,8 +753,3 @@ def make_on_anno_files(mmd, videotable):
                 current_end = e
         wv['annotations'].append({'label': 'on', 'segment': [current_start, current_end]})
         onmmd_anno[k] = wv
-        
-            
-            
-            
-            

@@ -11,10 +11,9 @@ import torch.nn.parallel
 import torch.optim as optim
 from torchsummary import summary
 import numpy as np
-from tensorboardX import SummaryWriter
 import opts
-from dataset import ThumosFeatures, ThumosImages, ProposalDataSet, GymnasticsSampler, GymnasticsImages, ProposalSampler
-from models import TEM, PEM, partial_load, get_img_loader
+from dataset import ThumosFeatures, ThumosImages, ProposalDataSet, GymnasticsSampler, GymnasticsImages, ProposalSampler, VideoDataset
+from models import TEM, PEM, partial_load, get_img_loader, AMDIMModel, get_video_transforms
 from loss_function import TEM_loss_function, PEM_loss_function
 import pandas as pd
 from pgm import PGM_proposal_generation, PGM_feature_generation
@@ -22,6 +21,7 @@ from post_processing import BSN_post_processing
 from post_processing2 import BSN_post_processing as BSN_post_processing2
 from eval import evaluation_proposal
 from eval2 import evaluation_proposal as evaluation_proposal2
+import tem_jobs
 
 
 def get_lr(optimizer):
@@ -31,8 +31,8 @@ def get_lr(optimizer):
 
 def compute_metrics(sums, loss, count):
     values = {k: loss[k].cpu().detach().numpy()
-              for k in sums if k not in ['entries', 'current_l2']}
-    for key in ['entries', 'current_l2']:
+              for k in sums if k not in ['entries']}
+    for key in ['entries']:
         if key in loss:
             values[key] = loss[key]
     new_sums = {k: v + sums[k] for k, v in values.items()}
@@ -64,12 +64,8 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         TEM_output = model(input_data)            
         loss = TEM_loss_function(label_action, label_start, label_end,
                                  TEM_output, opt)
-        wat = [W.cpu().detach().numpy() for W in model.module.parameters()]
-        watsq = [W**2 for W in wat]
-        watsqsum = [W.sum() for W in watsq]
-        l2 = sum(watsqsum) / 2
-        # l2 = sum([(W**2).sum() for W in model.module.parameters()])
-        # l2 = l2.sum() / 2
+        l2 = sum([(W**2).sum() for W in model.module.parameters()])
+        l2 = l2.sum() / 2
         l2 = opt['tem_l2_loss'] * l2
         loss['current_l2'] = l2
         total_loss = loss['cost'] + l2
@@ -91,9 +87,9 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
                 epoch_avg['steps_per_second'] = steps_per_second
             epoch_avg['current_lr'] = get_lr(optimizer)
             # print({k: type(v) for k, v in epoch_avg.items()})
-            # print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)))
+            print('\nEpoch %d, S/S %.3f, Global Step %d, Local Step %d / %d.' % (epoch, steps_per_second, global_step, n_iter, len(data_loader)), flush=True)
             s = ", ".join(['%s --> %.6f' % (key, epoch_avg[key]) for key in epoch_avg])
-            print("TEM avg: %s." % s)
+            print("TEM avg: %s." % s, flush=True)
             if comet_exp:
                 with comet_exp.train():
                     comet_exp.log_metrics(epoch_avg, step=global_step, epoch=epoch)
@@ -112,7 +108,7 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
     return global_step + 1
 
 
-def test_TEM(data_loader, model, epoch, global_step, comet_exp, opt):
+def test_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt):
     model.eval()
     
     keys = ['action_loss', 'start_loss', 'end_loss', 'total_loss', 'cost', 'action_positive', 'start_positive', 'end_positive', 'entries', 'current_l2']
@@ -150,19 +146,22 @@ def test_TEM(data_loader, model, epoch, global_step, comet_exp, opt):
     s = ", ".join(['%s --> %.6f' % (key.replace('_loss', '').replace('current_', '').capitalize(), epoch_values[key]) for key in sorted(epoch_values.keys())])
     print("Test %s." % s, flush=True)
     
-    state = {'epoch': epoch, 'global_step': global_step, 'state_dict': model.state_dict()}
+    state = {
+        'epoch': epoch, 'global_step': global_step, 'state_dict': model.state_dict(),
+        'optimizer_dict': optimizer.state_dict()
+    }
     save_dir = os.path.join(opt["checkpoint_path"], opt['name'])
     if not os.path.exists(save_dir):
         os.makedirs(save_dir, exist_ok=True)
         
-    save_path = os.path.join(save_dir, 'tem_checkpoint.%d.pth' % epoch)
-    torch.save(state, save_path)
-
     total_loss = epoch_values['total_loss']
     if total_loss < model.module.tem_best_loss:
         model.module.tem_best_loss = total_loss
-        save_path = os.path.join(save_dir, 'tem_best.pth')
+        save_path = os.path.join(save_dir, 'tem_checkpoint.%d.pth' % epoch)
         torch.save(state, save_path)
+        # save_path = os.path.join(save_dir, 'tem_best.%d.pth % epoch')
+        # torch.save(state, save_path)
+        
 
 
 def train_PEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt):
@@ -268,9 +267,39 @@ def test_PEM(data_loader, model, epoch, global_step, comet_exp, opt):
         torch.save(state, save_path)
 
 
+def _maybe_load_checkpoint(model, optimizer, global_step, epoch, directory):
+    if not os.path.exists(directory):
+        print('NOT LAODING CHECKPOINT (nonexistent dir)')
+        return global_step, epoch
+    
+    ckpts = os.listdir(directory)
+    if not ckpts:
+        print('NOT LAODING CHECKPOINT (empty dir)')
+        return global_step, epoch
+
+    print('HAVE ckpts: ', ckpts)
+    best_ckpt = sorted(ckpts, key=lambda k: int(k.split('.')[-2]), reverse=True)[0]
+    print('LOADING from ckpt!', best_ckpt)
+    checkpoint = torch.load(best_ckpt)
+    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    model.load_state_dict(checkpoint['state_dict'])
+    epoch = checkpoint['epoch']
+    global_step = checkpoint['global_step']
+    print('Epoch/Gss: ', epoch, global_step)
+    return epoch, global_step
+
+    
 def BSN_Train_TEM(opt):
+    global_step = 0
+    epoch = 0
     if opt['do_representation']:
         model = TEM(opt)
+        optimizer = optim.Adam(model.parameters(),
+                               lr=opt["tem_training_lr"],
+                               weight_decay=opt["tem_weight_decay"])
+        global_step, epoch = _maybe_load_checkpoint(
+            model, optimizer, global_step, epoch,
+            os.path.join(opt["checkpoint_path"], opt['name']))
         if opt['representation_checkpoint']:
             partial_load(opt['representation_checkpoint'], model)
         for param in model.representation_model.parameters():
@@ -278,17 +307,18 @@ def BSN_Train_TEM(opt):
         print(len([p for p in model.representation_model.parameters()]))
     else:
         model = TEM(opt)
-
+        optimizer = optim.Adam(model.parameters(),
+                               lr=opt["tem_training_lr"],
+                               weight_decay=opt["tem_weight_decay"])
+        global_step, epoch = _maybe_load_checkpoint(
+            model, optimizer, global_step, epoch,
+            os.path.join(opt["checkpoint_path"], opt['name']))
+        
     model = torch.nn.DataParallel(model).cuda()
-    summary(model, (opt['num_videoframes']*opt['tem_batch_size'], 3, 224, 224))
+    # summary(model, (2, 3, 224, 224))
     
-    global_step = 0
-
     print('    Total params: %.2fM' %
           (sum(p.numel() for p in model.parameters()) / 1000000.0))
-    optimizer = optim.Adam(model.parameters(),
-                           lr=opt["tem_training_lr"],
-                           weight_decay=opt["tem_weight_decay"])
 
     if opt['dataset'] == 'gymnastics':
         img_loading_func = get_img_loader(opt)
@@ -315,7 +345,18 @@ def BSN_Train_TEM(opt):
             image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_test_tal.30'
         )
         train_sampler = None
+    elif opt['dataset'] == 'activitynet':
+        train_sampler = None
+        representation_module = opt['representation_module']
+        train_transforms = get_video_transforms(
+            representation_module, opt['do_augment'])
+        test_transforms = get_video_transforms(
+            representation_module, False)
+        train_data_set = VideoDataset(opt, train_transforms, subset='train', fraction=0.3)
+        # We use val because we don't have annotations for test.
+        test_data_set = VideoDataset(opt, test_transforms, subset='val', fraction=0.3)
 
+    print('train_loader / val_loader sizes: ', len(train_data_set), len(test_data_set))
     train_loader = torch.utils.data.DataLoader(
         train_data_set,
         batch_size=model.module.batch_size,
@@ -332,6 +373,7 @@ def BSN_Train_TEM(opt):
         num_workers=opt['data_workers'],
         pin_memory=True,
         drop_last=False)
+    # test_loader = None
 
     milestones = [int(k) for k in opt['tem_lr_milestones'].split(',')]
     scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=milestones, gamma=opt['tem_step_gamma'])
@@ -359,10 +401,13 @@ def BSN_Train_TEM(opt):
         comet_exp.log_parameters(opt)
         comet_exp.set_name(opt['name'])
 
-    # test_TEM(test_loader, model, 0, 0, comet_exp, opt)
-    for epoch in range(1, opt["tem_epoch"] + 1):
+    # test_TEM(test_loader, model, optimizer, 0, 0, comet_exp, opt)
+    for epoch in range(epoch+1, opt["tem_epoch"] + 1):
         global_step = train_TEM(train_loader, model, optimizer, epoch, global_step, comet_exp, opt)
-        test_TEM(test_loader, model, epoch, global_step, comet_exp, opt)    
+        test_TEM(test_loader, model, optimizer, epoch, global_step, comet_exp, opt)
+        if opt['dataset'] == 'activitynet':
+            test_loader.dataset._subset_dataset(.3)
+            train_loader.dataset._subset_dataset(.3)
         scheduler.step()
         
 
@@ -637,7 +682,7 @@ def BSN_inference_PEM(opt):
         video_df.to_csv(path, index=False)
 
         
-def main(opt):
+def main(opt):        
     np.random.seed(opt['seed'])
     torch.manual_seed(opt['seed'])
     torch.backends.cudnn.deterministic = True
@@ -703,4 +748,18 @@ if __name__ == '__main__':
     opt = opts.parse_opt()
     opt = vars(opt)
     opt['start_time'] = time.time()
+    
+    # We use jobarray for activitynet so here we want to get the opt.
+    if opt['mode'] == 'jobarray_train':
+        jobid = int(os.getenv('SLURM_ARRAY_TASK_ID'))
+        if not jobid:
+            raise
+        counter, job = tem_jobs.run(find_counter=jobid)
+        print(counter, job)
+        print()
+        print(opt)
+        print()
+        opt.update(job)
+        print(opt)
+        
     main(opt)

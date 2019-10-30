@@ -9,38 +9,81 @@ from torch.nn import init
 
 from representations.ccc.model import Model as CCCModel
 from representations.ccc.model import img_loading_func as ccc_img_loading_func
+from representations.ccc.model import transforms_augment_video as ccc_augment_transforms
+from representations.ccc.model import transforms_regular_video as ccc_regular_transforms
 from representations.ccc.representation import Representation as CCCRepresentation
 from representations.ccc.representation import THUMOS_OUTPUT_DIM as CCCThumosDim
 from representations.ccc.representation import GYMNASTICS_OUTPUT_DIM as CCCGymnasticsDim
+from representations.ccc.representation import ACTIVITYNET_OUTPUT_DIM as CCCActivitynetDim
 
 from representations.corrflow.model import Model as CorrFlowModel
 from representations.corrflow.model import img_loading_func as corrflow_img_loading_func
+from representations.corrflow.model import transforms_augment_video as corrflow_augment_transforms
+from representations.corrflow.model import transforms_regular_video as corrflow_regular_transforms
 from representations.corrflow.representation import Representation as CorrFlowRepresentation
 from representations.corrflow.representation import THUMOS_OUTPUT_DIM as CorrFlowThumosDim
 from representations.corrflow.representation import GYMNASTICS_OUTPUT_DIM as CorrFlowGymnasticsDim
+from representations.corrflow.representation import ACTIVITYNET_OUTPUT_DIM as CorrFlowActivitynetDim
 
 from representations.resnet.model import Model as ResnetModel
 from representations.resnet.model import img_loading_func as resnet_img_loading_func
+from representations.resnet.model import transforms_augment_video as resnet_augment_transforms
+from representations.resnet.model import transforms_regular_video as resnet_regular_transforms
 from representations.resnet.representation import Representation as ResnetRepresentation
 from representations.resnet.representation import THUMOS_OUTPUT_DIM as ResnetThumosDim
 from representations.resnet.representation import GYMNASTICS_OUTPUT_DIM as ResnetGymnasticsDim
+from representations.resnet.representation import ACTIVITYNET_OUTPUT_DIM as ResnetActivitynetDim
+
+from representations.amdim.model import Model as AMDIMModel
+from representations.amdim.model import img_loading_func as amdim_img_loading_func
+from representations.amdim.model import transforms_augment_video as amdim_augment_transforms
+from representations.amdim.model import transforms_regular_video as amdim_regular_transforms
+from representations.amdim.representation import Representation as AMDIMRepresentation
+from representations.amdim.representation import THUMOS_OUTPUT_DIM as AMDIMThumosDim
+from representations.amdim.representation import GYMNASTICS_OUTPUT_DIM as AMDIMGymnasticsDim
+from representations.amdim.representation import ACTIVITYNET_OUTPUT_DIM as AMDIMActivityNetDim
+
 
 
 def _get_module(key):
     return {
         # 'timecycle': CycleTime,
-        'corrflow-thumosimages':
-            (CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func, CorrFlowThumosDim),
-        'corrflow-gymnastics':
-            (CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func, CorrFlowGymnasticsDim),
-        'ccc-thumosimages':
-            (CCCModel, CCCRepresentation, ccc_img_loading_func, CCCThumosDim),
-        'ccc-gymnastics':
-            (CCCModel, CCCRepresentation, ccc_img_loading_func, CCCGymnasticsDim),
-        'resnet-thumosimages':
-            (ResnetModel, ResnetRepresentation, resnet_img_loading_func, ResnetThumosDim),
-        'resnet-gymnastics':
-            (ResnetModel, ResnetRepresentation, resnet_img_loading_func, ResnetGymnasticsDim)
+        'corrflow-thumosimages': (
+            CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func, CorrFlowThumosDim
+        ),
+        'corrflow-gymnastics': (
+            CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func, CorrFlowGymnasticsDim
+        ),
+        'corrflow-activitynet': (
+            CorrFlowModel, CorrFlowRepresentation, corrflow_img_loading_func, CorrFlowActivitynetDim
+        ),
+        'ccc-thumosimages': (
+            CCCModel, CCCRepresentation, ccc_img_loading_func, CCCThumosDim
+        ),
+        'ccc-gymnastics': (
+            CCCModel, CCCRepresentation, ccc_img_loading_func, CCCGymnasticsDim
+        ),
+        'ccc-activitynet': (
+            CCCModel, CCCRepresentation, ccc_img_loading_func, CCCActivitynetDim
+        ),
+        'resnet-thumosimages': (
+            ResnetModel, ResnetRepresentation, resnet_img_loading_func, ResnetThumosDim
+        ),
+        'resnet-gymnastics': (
+            ResnetModel, ResnetRepresentation, resnet_img_loading_func, ResnetGymnasticsDim
+        ),
+        'resnet-activitynet': (
+            ResnetModel, ResnetRepresentation, resnet_img_loading_func, ResnetActivitynetDim
+        ),
+        'amdim-thumosimages': (
+            AMDIMModel, AMDIMRepresentation, amdim_img_loading_func, AMDIMThumosDim
+        ),
+        'amdim-gymnastics': (
+            AMDIMModel, AMDIMRepresentation, amdim_img_loading_func, AMDIMGymnasticsDim
+        ),
+        'amdim-activitynet': (
+            AMDIMModel, AMDIMRepresentation, amdim_img_loading_func, AMDIMActivityNetDim
+        )        
     }.get(key)
 
 
@@ -50,8 +93,24 @@ def get_img_loader(opt):
     return img_loading_func
 
 
+def get_video_transforms(representation_module, do_augment):
+    augment = 'augment' if do_augment else 'regular'
+    key = '%s-%s' % (representation_module, augment)
+    return {
+        'amdim-augment': amdim_augment_transforms,
+        'amdim-regular': amdim_regular_transforms,
+        'ccc-augment': ccc_augment_transforms,
+        'ccc-regular': ccc_regular_transforms,
+        'corrflow-augment': corrflow_augment_transforms,
+        'corrflow-regular': corrflow_regular_transforms,
+        'resnet-augment': resnet_augment_transforms,
+        'resnet-regular': resnet_regular_transforms,
+    }.get(key)
+
+
+
 def partial_load(checkpoint_path, model):
-    checkpoint = torch.load(checkpoint_path)
+    checkpoint = torch.load(checkpoint_path, map_location=lambda storage, loc: storage)
     pretrained_dict = checkpoint['state_dict']
     pretrained_dict = model.translate(pretrained_dict)
     model_dict = model.state_dict()
@@ -77,12 +136,18 @@ class TEM(torch.nn.Module):
         if self.do_representation:
             key = '%s-%s' % (opt['representation_module'], opt['dataset'])
             model, representation, _, representation_dim = _get_module(key)
-            self.representation_model = model(opt)
+            tags_csv = opt['representation_tags']
+            if tags_csv:
+                hparams = load_hparams_from_tags_csv(tags_csv)
+                hparams.__setattr__('on_gpu', False)
+                self.representation_model = model(hparams)
+            else:
+                self.representation_model = model(opt)
+                
             if self.do_feat_conversion:
                 self.representation_mapping = representation(opt)
             else:
                 self.feat_dim = representation_dim
-        print('Feature Dimension: ', self.feat_dim)
                 
         self.tem_best_loss = 10000000
         self.output_dim = 3
@@ -121,7 +186,6 @@ class TEM(torch.nn.Module):
 
     @staticmethod
     def weight_init(m):
-        print('Doing weight init!!')
         if isinstance(m, nn.Conv1d):
             init.xavier_normal_(m.weight)
             init.constant_(m.bias, 0)
@@ -140,7 +204,7 @@ class TEM(torch.nn.Module):
         with torch.no_grad():
             x = self.representation_model(x)
             x = x.detach()
-            
+
         if self.do_feat_conversion:
             x = self.representation_mapping(x)
             adj_batch_size, num_features = x.shape
@@ -194,3 +258,33 @@ class PEM(torch.nn.Module):
         x = F.relu(self.nonlinear_factor * self.fc1(x))
         x = torch.sigmoid(self.nonlinear_factor * self.fc2(x))
         return x
+
+
+def load_hparams_from_tags_csv(tags_csv):
+    from argparse import Namespace
+    import pandas as pd
+
+    tags_df = pd.read_csv(tags_csv)
+    dic = tags_df.to_dict(orient='records')
+    
+    ns_dict = {row['key']: convert(row['value']) for row in dic}
+    
+    ns = Namespace(**ns_dict)
+    return ns
+
+
+def convert(val):
+    constructors = [int, float, str]
+    
+    if type(val) is str:
+        if val.lower() == 'true':
+            return True
+        if val.lower() == 'false':
+            return False
+        
+    for c in constructors:
+        try:
+            return c(val)
+        except ValueError:
+            pass
+    return val

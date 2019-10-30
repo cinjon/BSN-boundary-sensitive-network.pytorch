@@ -6,9 +6,26 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torchvision import transforms
 
 from . import resnet_res4s1
 from . import inflated_resnet
+from .. import video_transforms, functional_video
+
+
+transforms_augment_video = transforms.Compose([
+    video_transforms.ToTensorVideo(),
+    video_transforms.ResizeVideo((256, 256), interpolation='nearest'),
+    video_transforms.RandomHorizontalFlipVideo(p=0.5),    
+    video_transforms.NormalizeVideo(mean=[0.485, 0.456, 0.406],
+                                    std=[0.229, 0.224, 0.225])
+])
+transforms_regular_video = transforms.Compose([
+    video_transforms.ToTensorVideo(),
+    video_transforms.ResizeVideo((256, 256), interpolation='nearest'),
+    video_transforms.NormalizeVideo(mean=[0.485, 0.456, 0.406],
+                                    std=[0.229, 0.224, 0.225])
+])
 
 
 def resize(img, owidth, oheight):
@@ -145,4 +162,3 @@ class Model(nn.Module):
             k.replace('module', 'representation_model'): v
             for k, v in pretrained.items()
         }
-    

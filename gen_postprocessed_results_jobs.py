@@ -48,5 +48,6 @@ for pem_results_subdir in os.listdir(pem_results_dir):
         elif 'gymnastics' in _job['dataset']:
             _job['video_info'] = _job['video_info'].replace('Full_Annotation.csv', 'ground_truth.csv')
         _job['name'] = '%s.%s' % (pem_results_subdir, ckpt_subdir)
-            
+
         func(_job, counter, email, code_directory)
+        print()
