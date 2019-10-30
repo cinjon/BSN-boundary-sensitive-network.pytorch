@@ -324,11 +324,15 @@ def BSN_Train_TEM(opt):
         img_loading_func = get_img_loader(opt)
         train_data_set = GymnasticsImages(
             opt, subset='Train', img_loading_func=img_loading_func,
-            image_dir='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12')
-        train_sampler = GymnasticsSampler(train_data_set)
+            image_dir='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12',
+            video_info_path = os.path.join(opt['video_info'], 'Train_Annotation.csv')
+        )
+        train_sampler = GymnasticsSampler(train_data_set, opt['sampler_mode'])
         test_data_set = GymnasticsImages(
             opt, subset="Val", img_loading_func=img_loading_func,
-            image_dir='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12')
+            image_dir='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12',
+            video_info_path = os.path.join(opt['video_info'], 'Val_Annotation.csv')
+        )
     elif opt['dataset'] == 'thumosfeatures':
         feature_dirs = opt['feature_dirs'].split(',')
         train_data_set = ThumosFeatures(opt, subset='Val', feature_dirs=feature_dirs)
@@ -336,13 +340,16 @@ def BSN_Train_TEM(opt):
         train_sampler = None
     elif opt['dataset'] == 'thumosimages':
         img_loading_func = get_img_loader(opt)
+        
         train_data_set = ThumosImages(
             opt, subset='Val', img_loading_func=img_loading_func,
-            image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_validation_tal.30'
+            image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_validation_tal.30',
+            video_info_path = os.path.join(opt['video_info'], 'Val_Annotation.csv')
         )
         test_data_set = ThumosImages(
             opt, subset='Test', img_loading_func=img_loading_func,
-            image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_test_tal.30'
+            image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_test_tal.30',
+            video_info_path = os.path.join(opt['video_info'], 'Test_Annotation.csv')            
         )
         train_sampler = None
     elif opt['dataset'] == 'activitynet':
@@ -755,11 +762,8 @@ if __name__ == '__main__':
         if not jobid:
             raise
         counter, job = tem_jobs.run(find_counter=jobid)
-        print(counter, job)
-        print()
-        print(opt)
-        print()
+        print(counter, job, '\n', opt)
         opt.update(job)
-        print(opt)
+        print(opt, flush=True)
         
     main(opt)

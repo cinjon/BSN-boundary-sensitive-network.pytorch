@@ -22,21 +22,27 @@ anno_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytor
 func = fb_run_batch
 
 
-def do_activitynet_fb_jobarray(counter, job, representation_module, time, find_counter):
-    num_gpus = 8
+def do_fb_jobarray(counter, job, representation_module, time, find_counter, do_job=False):
+    num_gpus = 8 # NOTE!
     num_cpus = num_gpus * 10
     gb = num_gpus * 64
     directory = '/checkpoint/cinjon/spaceofmotion'
     slurm_logs = os.path.join(directory, 'bsn', 'slurm_logs')
     slurm_scripts = os.path.join(directory, 'bsn', 'slurm_scripts')
-    comet_dir = os.path.join(directory, 'bsn', 'comet')
-    job['local_comet_dir'] = os.path.join(comet_dir, job['module'].lower())
+    comet_dir = os.path.join(directory, 'bsn', 'comet', job['module'].lower(), job['dataset'], representation_module)
+    if not os.path.exists(comet_dir):
+        os.makedirs(comet_dir)
+    job['local_comet_dir'] = comet_dir
     job['time'] = time
     job['data_workers'] = min(int(2.5 * num_gpus), num_cpus - num_gpus)
+    if job['dataset'] == 'activitynet':
+        job['data_workers'] *= 1.5
+        job['data_workers'] = int(job['data_workers'])
     job['data_workers'] = max(job['data_workers'], 12)
     
     representation_checkpoint, representation_tags = _get_representation_info(representation_module)
     jobarray = []
+
     for do_feat_conversion in [False, True]:
         for do_augment in [True, False]:
             do_gradient_checkpointing = False
@@ -63,11 +69,15 @@ def do_activitynet_fb_jobarray(counter, job, representation_module, time, find_c
                                 
                                 _job = {k: v for k, v in job.items()}
                                 _job['counter'] = counter
-                                tem_batch_size = 4
                                 if representation_module == 'corrflow':
-                                    tem_batch_size = 1
+                                    # Can this be higher???
+                                    tem_batch_size = 4
+                                elif representation_module == 'resnet':
+                                    tem_batch_size = 4
                                 elif not do_feat_conversion:
                                     tem_batch_size = 2
+                                else:
+                                    tem_batch_size = 4
                                     
                                 _job['tem_batch_size'] = tem_batch_size
                                 _job['do_gradient_checkpointing'] = do_gradient_checkpointing
@@ -93,12 +103,10 @@ def do_activitynet_fb_jobarray(counter, job, representation_module, time, find_c
                                     return counter, _job
                                 jobarray.append(counter)
                                 
-    if not find_counter:
-        print("Size: ", len(jobarray))
-        
-        jobname = 'temtr.anet.%s.%dhr.cnt%d' % (representation_module, time, counter)
+    if not find_counter and do_job:
+        jobname = 'temtr.%s.%s.%dhr.cnt%d' % (_job['dataset'], representation_module, time, counter)
         jobcommand = "python main.py --mode jobarray_train"
-        print(jobcommand, " /.../ ", jobname)
+        print("Size: ", len(jobarray), jobcommand, " /.../ ", jobname)
 
         slurmfile = os.path.join(slurm_scripts, jobname + '.slurm')
         hours = int(time)
@@ -128,11 +136,7 @@ def do_activitynet_fb_jobarray(counter, job, representation_module, time, find_c
             f.write(jobcommand + "\n")
 
         s = "sbatch %s" % os.path.join(slurm_scripts, jobname + ".slurm")
-        if time == 6 and representation_module == 'resnet':
-            pass
-        else:
-            pass
-            # os.system(s)
+        os.system(s)
     return counter, None
 
 
@@ -1076,10 +1080,8 @@ def run(find_counter=None):
                                     if find_counter == counter:
                                         return _job
                                     
-                                    if not find_counter:
-                                        if dataset == 'gymnastics':
-                                            func(_job, counter, email, code_directory)
-                                            return
+                                    # if not find_counter:
+                                    #     func(_job, counter, email, code_directory)
 
 
     job = {
@@ -1096,19 +1098,71 @@ def run(find_counter=None):
         'tem_nonlinear_factor': 0.1,
         'dataset': 'activitynet',
         'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/video_info_with_subset.fps24.csv',
-        'train_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/train_keys_split.txt',
-        'val_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/val_keys_split.txt',
+        'train_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/train_keys_split.24fps.txt',
+        'val_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/val_keys_split.24fps.txt',
     }
     num_gpus = 8
-    print('Counter Before ActivityNet: ', counter)
+    # print('Counter Before ActivityNet: ', counter) # 1328
     for representation_module in ['resnet', 'corrflow', 'ccc', 'amdim']:
         for time in [6, 36]:
-            counter, _job = do_activitynet_fb_jobarray(
-                counter, job, representation_module, time, find_counter=find_counter)
+            counter, _job = do_fb_jobarray(
+                counter, job, representation_module, time, find_counter=find_counter, do_job=False)
             if find_counter and _job:
                 return counter, _job
 
-                                    
+
+    job = {
+        'name': '2019.10.30.gym',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 30,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'gymnastics',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',
+    }
+    num_gpus = 8
+    # print('Counter Before Gymnastics: ', counter) # 1904
+    for sampler_mode in ['off', 'on']:
+        for representation_module in ['resnet', 'corrflow', 'ccc', 'amdim']:
+            _job = {k: v for k, v in job.items()}
+            _job['sampler_mode'] = sampler_mode
+            _job['name'] += '.smplr%s' % sampler_mode
+            counter, _job = do_fb_jobarray(
+                counter, _job, representation_module, time=6, find_counter=find_counter, do_job=False)
+            if find_counter and _job:
+                return counter, _job
+            
+    job = {
+        'name': '2019.10.30.activitynet',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'dist_videoframes': 400,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'activitynet',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/video_info_with_subset.fps24.csv',
+        'train_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/train_keys_split.24fps.txt',
+        'val_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/val_keys_split.24fps.txt',
+    }
+    num_gpus = 8
+    # print('Counter Before ActivityNet: ', counter) # 2528
+    for time in [3, 36]:
+        for representation_module in ['resnet', 'corrflow', 'ccc', 'amdim']:
+            counter, _job = do_fb_jobarray(
+                counter, job, representation_module, time, find_counter=find_counter, do_job=True)
+            if find_counter and _job:
+                return counter, _job
+            
     
 if __name__ == '__main__':
     run()

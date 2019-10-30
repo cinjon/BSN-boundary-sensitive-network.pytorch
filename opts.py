@@ -6,6 +6,8 @@ def parse_opt():
     # Overall settings
     parser.add_argument('--module', type=str, default='TEM')
     parser.add_argument('--mode', type=str, default='train')
+    parser.add_argument('--sampler_mode', type=str, default='both',
+                        help='for gymnastics, can be both, on, frames, or None')    
     parser.add_argument('--checkpoint_path', type=str, default='./checkpoint')
     parser.add_argument('--checkpoint_epoch', type=int, default=None,
                         help="if none, use 'best'. else use that epoch.")    

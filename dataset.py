@@ -32,7 +32,7 @@ def ioa_with_anchors(anchors_min, anchors_max, box_min, box_max):
     
 
 class TEMDataset(data.Dataset):
-    def __init__(self, opt, subset=None, feature_dirs=[], fps=30, image_dir=None, img_loading_func=None):
+    def __init__(self, opt, subset=None, feature_dirs=[], fps=30, image_dir=None, img_loading_func=None, video_info_path=None):
         self.subset = subset
         self.mode = opt["mode"]
         self.boundary_ratio = opt['boundary_ratio']
@@ -50,18 +50,27 @@ class TEMDataset(data.Dataset):
         self.fps = fps
         
         # e.g. /data/thumos14_annotations/Test_Annotation.csv
-        self.video_info_path = opt["video_info"]        
+        # was this: self.video_info_path = os.path.join(opt["video_info"], '%s_Annotation.csv' % self.subset)
+        self.video_info_path = video_info_path
         self._get_data()
 
-    def _get_data(self):        
+    def _get_data(self):
+        print(self.video_info_path)
         anno_df = pd.read_csv(self.video_info_path)
         video_name_list = sorted(list(set(anno_df.video.values[:])))
         
         video_info_dir = '/'.join(self.video_info_path.split('/')[:-1])
-        saved_data_path = os.path.join(video_info_dir, 'saved.%s.nf%d.sf%d.num%d.pkl' % (
-            self.subset, self.num_videoframes, self.skip_videoframes,
-            len(video_name_list))
-        )
+        if 'gymnastics' in self.video_info_path:
+            saved_data_path = os.path.join(video_info_dir, 'saved.%s.nf%d.sf%d.num%d.exgymthresh.pkl' % (
+                self.subset, self.num_videoframes, self.skip_videoframes,
+                len(video_name_list))
+            )
+        else:
+            saved_data_path = os.path.join(video_info_dir, 'saved.%s.nf%d.sf%d.num%d.pkl' % (
+                self.subset, self.num_videoframes, self.skip_videoframes,
+                len(video_name_list))
+            )
+            
         print(saved_data_path)
         if os.path.exists(saved_data_path):
             print('Got saved data.')
@@ -142,8 +151,12 @@ class TEMDataset(data.Dataset):
                         tmp_ioa_list.append(tmp_ioa)
                         if tmp_ioa > 0:
                             tmp_gt_bbox.append([gt_xmins[idx], gt_xmaxs[idx]])
-                        
-                    if len(tmp_gt_bbox) > 0 and max(tmp_ioa_list) > 0.9:
+
+                    # for gymnastics, removed 0.9 threshold. ruh roh again.
+                    if len(tmp_gt_bbox) > 0 and \
+                       ('gymnastics' in self.video_info_path or \
+                        max(tmp_ioa_list) > 0.9):
+                        print('Max: ', max(tmp_ioa_list))
                         list_gt_bbox.append(tmp_gt_bbox)
                         list_anchor_xmins.append(tmp_anchor_xmins)
                         list_anchor_xmaxs.append(tmp_anchor_xmaxs)
@@ -233,9 +246,9 @@ class TEMDataset(data.Dataset):
 
 
 class TEMImages(TEMDataset):
-    def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None):
+    def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None, video_info_path=None):
         self.do_augment = opt['do_augment'] and subset == 'train'
-        super(TEMImages, self).__init__(opt, subset, feature_dirs=None, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)        
+        super(TEMImages, self).__init__(opt, subset, feature_dirs=None, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func, video_info_path=video_info_path) 
 
     def _get_video_data(self, data, index):
         indices = data['indices'][index]
@@ -261,8 +274,8 @@ class TEMImages(TEMDataset):
 
 class ThumosFeatures(TEMDataset):
 
-    def __init__(self, opt, subset=None, feature_dirs=[]):
-        super(ThumosFeatures, self).__init__(opt, subset, feature_dirs, fps=None, image_dir=None, img_loading_func=None)
+    def __init__(self, opt, subset=None, feature_dirs=[], video_info_path=None):
+        super(ThumosFeatures, self).__init__(opt, subset, feature_dirs, fps=None, image_dir=None, img_loading_func=None, video_info_path=video_info_path)
 
     def _get_video_data(self, data, index):
         return data['video_data'][index]
@@ -270,58 +283,69 @@ class ThumosFeatures(TEMDataset):
 
 class ThumosImages(TEMImages):
 
-    def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None):
-        super(ThumosImages, self).__init__(opt, subset, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)
+    def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None, video_info_path=None):
+        super(ThumosImages, self).__init__(opt, subset, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func, video_info_path=video_info_path)
 
     def _get_image_dir(self, video_name):
         return os.path.join(self.image_dir, video_name)        
     
 
 class GymnasticsSampler(data.WeightedRandomSampler):
-    def __init__(self, train_data_set):
+    def __init__(self, train_data_set, mode):
         """
         Args:
           train_data_set: An instance of TEMDataset.
         """
+        print('Sampler mode: ', mode)
+        weights = [1. for _ in train_data_set.data['video_names']]
+        if mode not in ['both', 'on', 'frames']:
+            print('Sampler is not doing anything.')
+            super(GymnasticsSampler, self).__init__(weights, len(weights), replacement=True)
+            return
+        
         durations = train_data_set.durations
         if any([duration == None for duration in durations.values()]):
             raise
-        
-        # Initial weight count is inversely proportional to the number of frames in that video.
-        # The fewer the number of frames, the higher chance there is of selecting from that video.        
+
         total_frame_count = sum(list(durations.values()))
-        weights = [total_frame_count * 1. / durations[video]
-                   for video in train_data_set.data['video_names']]
-    
-        df = pd.read_csv(train_data_set.video_info_path)
-        on_indices = {k: set() for k in df.video.values[:]}
-        for video, start_frame, end_frame in zip(
-                df.video.values[:], df.startFrame.values[:], df.endFrame.values[:]
-        ):
-            if video in durations:
-                on_indices[video].update(range(start_frame, end_frame))
+        if mode in ['both', 'frames']:
+            # Initial weight count is inversely proportional to the number of frames in that video.
+            # The fewer the number of frames, the higher chance there is of selecting from that video.        
+            weights = [total_frame_count * 1. / durations[video]
+                       for video in train_data_set.data['video_names']]
 
-        print([(k, len(on_indices[k]), v) for k, v in durations.items()])
-        print('on / total: ', len(durations), len(on_indices))
-        total_on_count = sum([len(v) for k, v in on_indices.items()])
-        total_on_ratio = 1. * total_on_count / total_frame_count
-        print('total on ratio: ', total_on_ratio, total_on_count, total_frame_count)
+        if mode in ['both', 'on']:
+            df = pd.read_csv(train_data_set.video_info_path)
+            on_indices = {k: set() for k in df.video.values[:]}
+            for video, start_frame, end_frame in zip(
+                    df.video.values[:], df.startFrame.values[:], df.endFrame.values[:]
+            ):
+                if video in durations:
+                    on_indices[video].update(range(start_frame, end_frame))
 
-        for num, video in enumerate(train_data_set.data['video_names']):
-            indices = train_data_set.data['indices'][num]
-            if any([index in on_indices[video]
-                    for index in indices]):
-                weights[num] *= 0.5 / total_on_ratio
-            else:
-                weights[num] *= 0.5/ (1 - total_on_ratio)
+            print([(k, len(on_indices[k]), v) for k, v in durations.items()])
+            print('on / total: ', len(durations), len(on_indices))
+            total_on_count = sum([len(v) for k, v in on_indices.items()])
+            total_on_ratio = 1. * total_on_count / total_frame_count
+            print('total on ratio: ', total_on_ratio, total_on_count, total_frame_count)
 
+            for num, video in enumerate(train_data_set.data['video_names']):
+                indices = train_data_set.data['indices'][num]
+                if any([index in on_indices[video]
+                        for index in indices]):
+                    weights[num] /= total_on_ratio
+                else:
+                    weights[num] /= (1 - total_on_ratio)
+
+        # probs = [k * 1. / np.sum(weights) for k in weights]
+        # print(len(weights), np.max(probs), np.min(probs), np.median(probs), 1./len(weights), np.mean(probs), sorted(probs)[:50])
         super(GymnasticsSampler, self).__init__(weights, len(weights), replacement=True)
 
         
 class GymnasticsImages(TEMImages):
 
-    def __init__(self, opt, subset=None, fps=12, image_dir=None, img_loading_func=None):
-        super(GymnasticsImages, self).__init__(opt, subset, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func)        
+    def __init__(self, opt, subset=None, fps=12, image_dir=None, img_loading_func=None, video_info_path=None):
+        super(GymnasticsImages, self).__init__(opt, subset, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func, video_info_path=video_info_path)
 
     def _get_image_dir(self, video_name):
         target_dir = [k for k in os.listdir(self.image_dir) if unquote(k).replace('-', '').replace(' ', '') == video_name][0]
@@ -389,9 +413,12 @@ class VideoDataset(data.Dataset):
 
     def _subset_dataset(self, fraction):
         num_datums = int(len(self.datums) * fraction)
-        self.datum_indices = list(range(num_datums))
+        self.datum_indices = list(range(len(self.datums)))
         random.shuffle(self.datum_indices)
         self.datum_indices = self.datum_indices[:num_datums]
+        print('These indices: ', len(self.datum_indices), num_datums, len(self.datums))
+        print(sorted(self.datum_indices)[:10])
+        print(sorted(self.datum_indices)[-10:])
     
     def __len__(self):
         return len(self.datum_indices)
