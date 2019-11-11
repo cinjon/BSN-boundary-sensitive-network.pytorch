@@ -33,6 +33,7 @@ from representations.resnet.representation import Representation as ResnetRepres
 from representations.resnet.representation import THUMOS_OUTPUT_DIM as ResnetThumosDim
 from representations.resnet.representation import GYMNASTICS_OUTPUT_DIM as ResnetGymnasticsDim
 from representations.resnet.representation import ACTIVITYNET_OUTPUT_DIM as ResnetActivitynetDim
+from representations.resnet.representation import GYMNASTICSFEATURES_OUTPUT_DIM as TSNGymnasticsDim
 
 from representations.amdim.model import Model as AMDIMModel
 from representations.amdim.model import img_loading_func as amdim_img_loading_func
@@ -42,6 +43,12 @@ from representations.amdim.representation import Representation as AMDIMRepresen
 from representations.amdim.representation import THUMOS_OUTPUT_DIM as AMDIMThumosDim
 from representations.amdim.representation import GYMNASTICS_OUTPUT_DIM as AMDIMGymnasticsDim
 from representations.amdim.representation import ACTIVITYNET_OUTPUT_DIM as AMDIMActivityNetDim
+
+
+from representations.tsn.model import tsn_model as tsn_model_func
+from representations.tsn.model import img_loading_func as tsn_img_loading_func
+from representations.tsn.model import GYMNASTICS_OUTPUT_DIM as TSNGymDim
+from representations.tsn.representation import Representation as TSNRepresentation
 
 
 
@@ -72,6 +79,9 @@ def _get_module(key):
         'resnet-gymnastics': (
             ResnetModel, ResnetRepresentation, resnet_img_loading_func, ResnetGymnasticsDim
         ),
+        'resnet-gymnasticsfeatures': (
+            ResnetModel, ResnetRepresentation, None, TSNGymnasticsDim
+        ),
         'resnet-activitynet': (
             ResnetModel, ResnetRepresentation, resnet_img_loading_func, ResnetActivitynetDim
         ),
@@ -83,11 +93,17 @@ def _get_module(key):
         ),
         'amdim-activitynet': (
             AMDIMModel, AMDIMRepresentation, amdim_img_loading_func, AMDIMActivityNetDim
-        )        
+        ),
+        'tsn-gymnastics': (
+            tsn_model_func, TSNRepresentation, tsn_img_loading_func, TSNGymDim
+        ),
     }.get(key)
 
 
 def get_img_loader(opt):
+    dataset = opt['dataset']
+    if dataset == 'gymnasticsfeatures':
+        return None
     key = '%s-%s' % (opt['representation_module'], opt['dataset'])
     _, _, img_loading_func, _ = _get_module(key)
     return img_loading_func
@@ -134,7 +150,7 @@ class TEM(torch.nn.Module):
         self.do_gradient_checkpointing = opt['do_gradient_checkpointing']
         
         if self.do_representation:
-            key = '%s-%s' % (opt['representation_module'], opt['dataset'])
+            key = '%s-%s' % (opt['representation_module'], opt['dataset'])                
             model, representation, _, representation_dim = _get_module(key)
             tags_csv = opt['representation_tags']
             if tags_csv:
@@ -144,7 +160,7 @@ class TEM(torch.nn.Module):
             else:
                 self.representation_model = model(opt)
                 
-            if self.do_feat_conversion:
+            if self.do_feat_conversion and representation is not None:
                 self.representation_mapping = representation(opt)
             else:
                 self.feat_dim = representation_dim

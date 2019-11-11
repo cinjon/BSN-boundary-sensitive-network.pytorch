@@ -27,11 +27,13 @@ for tem_results_subdir in os.listdir(tem_results_dir):
     
     print(tem_results_dir, tem_results_subdir, counter)
     job = run(find_counter=counter)
+    if type(job) == tuple:
+        job = job[1]
 
     name = job['name']
     for ckpt_subdir in os.listdir(os.path.join(tem_results_dir, tem_results_subdir)):
         _job = deepcopy(job)
-        
+
         if 'thumos' in _job['dataset']:
             _job['video_anno'] = os.path.join(_job['video_info'], 'thumos_anno_action.json')
         elif 'gymnastics' in _job['dataset']:
@@ -41,7 +43,7 @@ for tem_results_subdir in os.listdir(tem_results_dir):
         _job['num_cpus'] = 48
         _job['pgm_thread'] = 40
         _job['gb'] = 64
-        _job['time'] = 5
+        _job['time'] = 3
         _job['tem_results_dir'] = os.path.join(tem_results_dir, tem_results_subdir, ckpt_subdir)
         
         propdir = os.path.join(pgm_proposals_dir, tem_results_subdir, ckpt_subdir)
@@ -57,7 +59,7 @@ for tem_results_subdir in os.listdir(tem_results_dir):
         _job['module'] = 'PGM'
         _job['mode'] = 'pgm'
         _job['name'] = '%s.%s' % (name, ckpt_subdir)
-        
+
         fb_run_batch(_job, counter, email, code_directory)
         check += 1
         print('\n')

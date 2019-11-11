@@ -27,12 +27,17 @@ def parse_opt():
     parser.add_argument(
         '--train_video_file_list',
         type=str,
-        default="./data/activitynet_annotations/video_dataset_files/train_keys_split.txt",
+        default="./data/activitynet_annotations/video_dataset_files/train_keys_split.24fps.txt",
         help='for use with video_dataset.py. should be a space delinated txt of <path to file> <key into annotation dataframe>.')
     parser.add_argument(
         '--val_video_file_list',
         type=str,
-        default="./data/activitynet_annotations/video_dataset_files/val_keys_split.txt",
+        default="./data/activitynet_annotations/video_dataset_files/val_keys_split.24fps.txt",
+        help='for use with video_dataset.py. should be a space delinated txt of <path to file> <key into annotation dataframe>.')
+    parser.add_argument(
+        '--full_video_file_list',
+        type=str,
+        default="/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/full_keys_split.24fps.txt",
         help='for use with video_dataset.py. should be a space delinated txt of <path to file> <key into annotation dataframe>.')
     parser.add_argument(
         '--fps',
@@ -52,12 +57,15 @@ def parse_opt():
                         help='instead of using pem_top_K, can do this to threshold the score and then use pem_top_K to randomly choose proposals from above this score.')    
     parser.add_argument('--pem_do_index', action='store_true')
     parser.add_argument('--pem_max_zero_weight', type=float, default=0.1)
+    parser.add_argument('--postproc_width_init', type=int, default=300)    
 
     # TEM model settings
     parser.add_argument('--tem_feat_dim', type=int, default=400)
     parser.add_argument('--tem_hidden_dim', type=int, default=512)
     parser.add_argument('--tem_nonlinear_factor', type=float, default=0.01)
     parser.add_argument('--tem_reset_params', action='store_true')
+    parser.add_argument('--gym_image_dir', type=str, default='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12')
+    parser.add_argument('--tsn_config', type=str, default='~/Code/BSN-boundary-sensitive-network.pytorch/representations/tsn/temp_tsn_rgb_bninception.py')
 
     # PEM model settings
     parser.add_argument('--pem_feat_dim', type=int, default=32)
@@ -79,7 +87,7 @@ def parse_opt():
     parser.add_argument('--tem_results_subset', type=str, default='full', help='can be full, train, or overfit.')
     
     # PEM Training settings
-    parser.add_argument('--pem_nonlinear_factor', type=int, default=0.1)
+    parser.add_argument('--pem_nonlinear_factor', type=float, default=0.1)
     parser.add_argument('--pem_training_lr', type=float, default=0.01)
     parser.add_argument('--pem_weight_decay', type=float, default=0)
     parser.add_argument('--pem_l2_loss', type=float, default=0.000025)
@@ -134,6 +142,7 @@ def parse_opt():
     parser.add_argument('--do_augment', action='store_true')
     parser.add_argument('--do_representation', action='store_true')
     parser.add_argument('--do_feat_conversion', action='store_true')
+    parser.add_argument('--no_freeze', action='store_true', default=False)    
     parser.add_argument('--do_gradient_checkpointing', action='store_true', default=False)    
     parser.add_argument(
         '--representation_module',

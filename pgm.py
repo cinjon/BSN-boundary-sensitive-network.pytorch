@@ -57,6 +57,7 @@ def generate_proposals(opt, video_list, video_data):
     tem_results_dir = opt['tem_results_dir']
     proposals_dir = opt['pgm_proposals_dir']
     skipped_paths = []
+    no_props_paths = []
 
     print(anno_df, flush=True)
     print(video_list, flush=True)
@@ -110,7 +111,15 @@ def generate_proposals(opt, video_list, video_data):
                 xmax_list.append(int(frame_list[index]))
                 xmax_score_list.append(end_scores[index])
 
+        # if len(xmax_list) == 0:
+        #     print("***\nNO MAX LIST: ", results_path, "\n***")
+        #     raise
+            
         new_props = []
+
+        # NOTE!!!
+        threshold = 500 if opt['dataset'] == 'activitynet' else 300
+        
         for ii in range(len(xmax_list)):
             if ii % 5000 == 0:
                 print('Done %d / %d'  % (ii, len(xmax_list)))
@@ -122,14 +131,22 @@ def generate_proposals(opt, video_list, video_data):
                 tmp_xmin_score = xmin_score_list[ij]
                 if tmp_xmax - tmp_xmin < 10:
                     break
-                if tmp_xmax - tmp_xmin > 300:
+                if tmp_xmax - tmp_xmin > threshold:
                     continue
                 new_props.append(
                     [tmp_xmin, tmp_xmax, tmp_xmin_score, tmp_xmax_score])
-        new_props = np.stack(new_props)
 
-        col_name = ["xmin", "xmax", "xmin_score", "xmax_score"]
-        new_df = pd.DataFrame(new_props, columns=col_name)
+        col_name = ["xmin", "xmax", "xmin_score", "xmax_score", "match_iou", "match_ioa", "match_xmin", "match_xmax"]
+        path = os.path.join(proposals_dir, '%s.proposals.csv' % video_name)
+        try:
+            new_props = np.stack(new_props)
+        except Exception as e:
+            no_props_paths.append(results_path)
+            new_df = pd.DataFrame(columns=col_name)
+            new_df.to_csv(path, index=False)
+            continue
+        
+        new_df = pd.DataFrame(new_props, columns=col_name[:4])
         # new_df["score"] = new_df.xmin_score * new_df.xmax_score
         # print('Filtering from ', len(new_df))
         # new_df = new_df[new_df.score > opt['pgm_score_threshold']]
@@ -184,18 +201,19 @@ def generate_proposals(opt, video_list, video_data):
         new_df["match_ioa"] = new_ioa_list
         new_df["match_xmin"] = match_xmin_list
         new_df["match_xmax"] = match_xmax_list
-        path = os.path.join(proposals_dir, '%s.proposals.csv' % video_name)
         print('saving to %s' % path)
         new_df.to_csv(path, index=False)
         print('Video %s took %.4f time' % (video_name, time.time() - start_time))
-    print('Total time was %.4f' % (time.time() - start_time), skipped_paths)
+        print('Skipped path len: ', len(skipped_paths), ', NoProps path len: ', len(no_props_paths))
+    print('Total time was %.4f' % (time.time() - start_time), skipped_paths, no_props_paths)
 
 
 def getDatasetDict(opt):
     print(opt['video_info'])
     print(opt['video_anno'])
     video_info = opt['video_info']
-    video_info = os.path.join(video_info, 'Full_Annotation.csv')
+    if opt['dataset'] != 'activitynet':
+        video_info = os.path.join(video_info, 'Full_Annotation.csv')
     print(video_info)
     df = pd.read_csv(video_info)
     
@@ -232,12 +250,16 @@ def generate_features(opt, video_list, video_dict):
     features_dir = opt['pgm_features_dir']
 
     start_time = time.time()
+    success_count = 0
+    not_exist_feats = 0
+    not_exist_props = 0
     for video_name in video_list:
         s0 = time.time()
         tem_path = os.path.join(tem_results_dir, video_name + ".csv")
         print(tem_path)
         if not os.path.exists(tem_path):
             print("NOT generating features for %s because features don't exist." % video_name)
+            not_exist_feats += 1
             continue        
         adf = pd.read_csv(tem_path)
         try:
@@ -248,6 +270,7 @@ def generate_features(opt, video_list, video_dict):
         proposals_path = os.path.join(proposals_dir, '%s.proposals.csv' % video_name)
         if not os.path.exists(proposals_path):
             print("NOT generating features for %s because proposals don't exist." % video_name)
+            not_exist_props += 1
             continue        
         pdf = pd.read_csv(proposals_path)
 
@@ -259,9 +282,9 @@ def generate_features(opt, video_list, video_dict):
         # 
         snippets = [skip_videoframes*i - normalizer for i in range(bookend_num)] + list(adf_frames) + [skip_videoframes*i + skip_videoframes + adf_frames[-1] for i in range(bookend_num)]
         print('Computing the interp1ds')
-        f_action = interp1d(snippets, score_action, axis=0)
-        f_start = interp1d(snippets, score_start, axis=0)
-        f_end = interp1d(snippets, score_end, axis=0)
+        f_action = interp1d(snippets, score_action, axis=0, fill_value='extrapolate')
+        f_start = interp1d(snippets, score_start, axis=0, fill_value='extrapolate')
+        f_end = interp1d(snippets, score_end, axis=0, fill_value='extrapolate')
         print('Done ciomputing interp1ds')
         
         feature_bsp = []
@@ -281,8 +304,10 @@ def generate_features(opt, video_list, video_dict):
             #start
             plen_start = (xmin_1 - xmin_0) / (num_sample_start - 1)
             tmp_x_new = [xmin_0 + plen_start * ii for ii in range(num_sample_start)]
-            tmp_y_new_start = np.concatenate((f_action(tmp_x_new),
-                                              f_start(tmp_x_new)))
+            tmp_y_new_start = np.concatenate((
+                f_action(tmp_x_new),
+                f_start(tmp_x_new)
+            ))
             
             #end
             plen_end = (xmax_1 - xmax_0) / (num_sample_end - 1)
@@ -310,12 +335,18 @@ def generate_features(opt, video_list, video_dict):
         print("Size of feature_bsp: ", feature_bsp.shape, len(adf), len(pdf), video_name)
         np.save(path, feature_bsp)
         print('Time from start to finish for video with adf len %d and pdf len %d was %.4f.' % (len(adf), len(pdf), time.time() - s0))
-    print('Total time was ', time.time() - start_time)
+        success_count += 1
+    print('Total time was ', time.time() - start_time, success_count, not_exist_feats, not_exist_props)
 
 
 def PGM_proposal_generation(opt):
-    video_data = pd.read_csv(os.path.join(opt["video_info"], 'Full_Annotation.csv'))
+    if opt['dataset'] == 'activitynet':
+        video_data = pd.read_csv(opt["video_info"])
+    else:
+        video_data = pd.read_csv(os.path.join(opt["video_info"], 'Full_Annotation.csv'))
     video_list = sorted(list(set(video_data.video.values[:])))
+    # video_list = video_list[:100]
+    # video_list = [v for v in video_list if v.startswith('v_3V')]
     
     num_videos = len(video_list)
     num_threads = min(num_videos, opt['pgm_thread'])

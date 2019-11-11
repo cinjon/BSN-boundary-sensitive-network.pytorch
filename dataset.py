@@ -57,26 +57,36 @@ class TEMDataset(data.Dataset):
     def _get_data(self):
         print(self.video_info_path)
         anno_df = pd.read_csv(self.video_info_path)
-        video_name_list = sorted(list(set(anno_df.video.values[:])))
-        
+        video_name_list = sorted(list(set(anno_df.video.values[:])))        
+
+        extra_feature_path = 'features.' if self.feature_dirs else ''
         video_info_dir = '/'.join(self.video_info_path.split('/')[:-1])
         if 'gymnastics' in self.video_info_path:
-            saved_data_path = os.path.join(video_info_dir, 'saved.%s.nf%d.sf%d.num%d.exgymthresh.pkl' % (
+            saved_data_path = os.path.join(video_info_dir, 'saved.%s.nf%d.sf%d.num%d.exgymthresh.%spkl' % (
                 self.subset, self.num_videoframes, self.skip_videoframes,
-                len(video_name_list))
-            )
+                len(video_name_list), extra_feature_path
+            ))
         else:
-            saved_data_path = os.path.join(video_info_dir, 'saved.%s.nf%d.sf%d.num%d.pkl' % (
+            saved_data_path = os.path.join(video_info_dir, 'saved.%s.nf%d.sf%d.num%d.%spkl' % (
                 self.subset, self.num_videoframes, self.skip_videoframes,
-                len(video_name_list))
-            )
+                len(video_name_list), extra_feature_path
+            ))
             
         print(saved_data_path)
         if os.path.exists(saved_data_path):
             print('Got saved data.')
             with open(saved_data_path, 'rb') as f:
                 self.data, self.durations = pickle.load(f)
-            print('Size of data: ', len(self.data['video_names']), flush=True)    
+            print('Size of data: ', len(self.data['video_names']), flush=True)
+            if self.feature_dirs:
+                # Pare away all of the dumb shit.
+                valid_indices = [
+                    num for num, k in enumerate(self.data['video_data']) \
+                    if k.shape == (100, 2048)
+                ]
+                print('Filtered size of data: ', len(valid_indices))
+                self.data = {k: [v[num] for num in valid_indices]
+                             for k, v in self.data.items()}
             return
         
         if self.feature_dirs:
@@ -104,19 +114,50 @@ class TEMDataset(data.Dataset):
 
             # NOTE: num_snippet is the number of snippets in this video.
             if self.image_dir:
+                print('Doing imagedir...')
                 image_dir = self._get_image_dir(video_name)
                 num_snippet = len(os.listdir(image_dir))
                 self.durations[video_name] = num_snippet
                 num_snippet = int((num_snippet - start_snippet) / skip_videoframes)
             elif self.feature_dirs:
-                feature_dfs = [
-                    pd.read_csv(os.path.join(feature_dir, '%s.csv' % video_name))
-                    for feature_dir in self.feature_dirs
-                ]
-                num_snippet = min([len(df) for df in feature_dfs])
-                df_data = np.concatenate([df.values[:num_snippet, :]
-                                          for df in feature_dfs],
-                                         axis=1)
+                print('Doing feature dir ..')
+                if 'gymnastics' in self.video_info_path:
+                    # Assuming that rgbs is the first feature_df... -_-
+                    rgb_path = os.path.join(self.feature_dirs[0], video_name)
+                    rgb_files = os.listdir(rgb_path)
+                    orig_rgb_len = len(rgb_files)
+                    if len(self.feature_dirs) > 1:
+                        flow_path = os.path.join(self.feature_dirs[1], video_name)
+                        flow_files = os.listdir(flow_path)
+                        orig_flow_len = len(flow_files)
+                        converted_flow_files = [
+                            '%010.4f.npy' % (int(k[:-4]) / 12)
+                            for k in flow_files
+                        ]
+                        flow_indices = [num for num, flow in enumerate(converted_flow_files) \
+                                        if flow in rgb_files]
+                        rgb_indices = [num for num, rgb in enumerate(rgb_files) \
+                                       if rgb in converted_flow_files]
+                        flow_files = [flow_files[num] for num in flow_indices]
+                        rgb_files = [rgb_files[num] for num in rgb_indices]
+                        print(video_name, ' rgb/flow: ', len(rgb_files), len(flow_files), ' orig: ', orig_rgb_len, orig_flow_len)
+                        num_snippet = min(len(flow_files), len(rgb_files))
+                        rgb_data = np.array([np.load(os.path.join(rgb_path, rgb_file)) for rgb_file in rgb_files])
+                        flow_data = np.array([np.load(os.path.join(flow_path, flow_file)) for flow_file in flow_files])
+                        df_data = np.concatenate([rgb_data, flow_data], axis=1)
+                    else:
+                        rgb_data = np.array([np.load(os.path.join(rgb_path, rgb_file)) for rgb_file in rgb_files])
+                        df_data = rgb_data
+                        num_snippet = len(rgb_files)
+                else:
+                    feature_dfs = [
+                        pd.read_csv(os.path.join(feature_dir, '%s.csv' % video_name))
+                        for feature_dir in self.feature_dirs
+                    ]
+                    num_snippet = min([len(df) for df in feature_dfs])
+                    df_data = np.concatenate([df.values[:num_snippet, :]
+                                              for df in feature_dfs],
+                                             axis=1)
 
             df_snippet = [start_snippet + skip_videoframes*i for i in range(num_snippet)]
             num_windows = int((num_snippet + stride - num_videoframes) / stride)
@@ -125,8 +166,11 @@ class TEMDataset(data.Dataset):
                 windows_start = [0]
                 if self.feature_dirs:
                     # Add on a bunch of zero data if there aren't enough windows.
-                    tmp_data = np.zeros((num_videoframes - num_snippet, 400))
-                    df_data = np.concatenate((df_data, tmp_data), axis=0)
+                    if 'gymnastics' in self.video_info_path:
+                        pass
+                    else:
+                        tmp_data = np.zeros((num_videoframes - num_snippet, 400))
+                        df_data = np.concatenate((df_data, tmp_data), axis=0)
                 df_snippet.extend([
                     df_snippet[-1] + skip_videoframes*(i+1)
                     for i in range(num_videoframes - num_snippet)
@@ -248,6 +292,9 @@ class TEMDataset(data.Dataset):
 class TEMImages(TEMDataset):
     def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None, video_info_path=None):
         self.do_augment = opt['do_augment'] and subset == 'train'
+        self.ext = 'npy'
+        if '240x426' in opt['gym_image_dir']:
+            self.ext = 'png'
         super(TEMImages, self).__init__(opt, subset, feature_dirs=None, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func, video_info_path=video_info_path) 
 
     def _get_video_data(self, data, index):
@@ -255,14 +302,24 @@ class TEMImages(TEMDataset):
         name = data['video_names'][index]
         path = os.path.join(self.image_dir, name)
         path = Path(path)
-        paths = [path / ('%010.4f.npy' % (i / self.fps)) for i in indices]
+        paths = [path / ('%010.4f.%s' % ((i / self.fps), self.ext)) for i in indices]
         imgs = [self.img_loading_func(p.absolute(), do_augment=self.do_augment)
                 for p in paths if p.exists()]
-        if type(imgs[0]) == np.array:
-            video_data = np.array(imgs)
-            video_data = torch.Tensor(video_data)
-        elif type(imgs[0]) == torch.Tensor:
-            video_data = torch.stack(imgs)
+        try:
+            if type(imgs[0]) == np.array:
+                video_data = np.array(imgs)
+                video_data = torch.Tensor(video_data)
+            elif type(imgs[0]) == torch.Tensor:
+                video_data = torch.stack(imgs)
+            elif type(imgs[0]) == np.ndarray:
+                # This is for TSN
+                video_data = np.array(imgs)
+                video_data = torch.from_numpy(video_data)
+                video_data = video_data.type(torch.FloatTensor)
+        except Exception as e:
+            print(paths)
+            print([p.exists() for p in paths])
+            raise
 
         if len(video_data) < self.num_videoframes:
             shape = [self.num_videoframes - len(video_data)]
@@ -352,6 +409,15 @@ class GymnasticsImages(TEMImages):
         return os.path.join(self.image_dir, target_dir)
         
 
+class GymnasticsFeatures(TEMDataset):
+
+    def __init__(self, opt, subset=None, feature_dirs=[], video_info_path=None):
+        super(GymnasticsFeatures, self).__init__(opt, subset, feature_dirs, fps=None, image_dir=None, img_loading_func=None, video_info_path=video_info_path)
+
+    def _get_video_data(self, data, index):
+        return data['video_data'][index]
+
+    
 class VideoDataset(data.Dataset):
     def __init__(self, opt, transforms, subset, fraction=1.):
         """file_list is a list of [/path/to/mp4 key-to-df]"""
@@ -368,8 +434,9 @@ class VideoDataset(data.Dataset):
         self.anno_df = pd.read_csv(self.video_info_path)
         print(self.anno_df)
         print(subset, subset_translate.get(subset))
-        self.anno_df = self.anno_df[self.anno_df.subset == subset_translate[subset]]
-        print(self.anno_df)
+        if subset != 'full':
+            self.anno_df = self.anno_df[self.anno_df.subset == subset_translate[subset]]
+            print(self.anno_df)
 
         file_loc = opt['%s_video_file_list' % subset]
         with open(file_loc, 'r') as f:
@@ -421,7 +488,10 @@ class VideoDataset(data.Dataset):
         print(sorted(self.datum_indices)[-10:])
     
     def __len__(self):
-        return len(self.datum_indices)
+        if self.mode == 'train':
+            return len(self.datum_indices)
+        else:
+            return self.video_clips.num_clips()
 
     def _retrieve_valid_datums(self):
         video_info_dir = '/'.join(self.video_info_path.split('/')[:-1])
@@ -463,10 +533,15 @@ class VideoDataset(data.Dataset):
         if self.mode == "train":
             datum_index = self.datum_indices[index]
             flat_index, anchor_xmin, anchor_xmax, gt_bbox = self.datums[datum_index]
+        else:
+            flat_index = index
+
         video, _, _, video_idx = self.video_clips.get_clip(flat_index)
             
         video_data = video[0::self.skip_videoframes]
+        print('Bef transform: ', video_data, type(video_data))
         video_data = self.transforms(video_data)
+        print('AFt transform: ', video_data, type(video_data))
         video_data = torch.transpose(video_data, 0, 1)
 
         _, clip_idx = self.video_clips.get_clip_location(index)
@@ -477,7 +552,10 @@ class VideoDataset(data.Dataset):
             match_score_action, match_score_start, match_score_end = self._get_train_label(gt_bbox, anchor_xmin, anchor_xmax)
             return video_data, match_score_action, match_score_start, match_score_end
         else:
-            video_name = self.keys_list[video_idx]
+            try:
+                video_name = self.keys_list[video_idx]
+            except Exception as e:
+                print('Whoops: VideoReader ...', video_idx, len(self.keys_list), index, flat_index)
             return flat_index, video_data, video_name, snippets
 
     def _get_training_anchors(self, snippets, key):
@@ -620,7 +698,7 @@ class ProposalDataSet(data.Dataset):
     def _getDatasetDict(self):
         anno_df = pd.read_csv(self.video_info_path)
         anno_database = load_json(self.video_anno_path)
-        print(self.video_anno_path, self.video_info_path)
+        print(self.subset, self.video_anno_path, self.video_info_path)
         self.video_dict = {}
         for i in range(len(anno_df)):
             video_name = anno_df.video.values[i]
@@ -636,7 +714,9 @@ class ProposalDataSet(data.Dataset):
             if self.subset in video_subset:
                 self.video_dict[video_name] = video_info
         self.video_list = sorted(self.video_dict.keys())
+        print('Init size of video_list: ', len(self.video_list))
         self.video_list = [k for k in self.video_list if self._exists(k)]
+        print('Exists size of video_list: ', len(self.video_list))        
 
         if self.opt['pem_do_index']:
             self.features = {}
@@ -645,8 +725,11 @@ class ProposalDataSet(data.Dataset):
             for video_name in self.video_list:
                 pgm_proposals_path = os.path.join(self.opt['pgm_proposals_dir'], '%s.proposals.csv' % video_name)
                 pgm_features_path = os.path.join(self.opt['pgm_features_dir'], '%s.features.npy' % video_name)
-                pdf = pd.read_csv(pgm_proposals_path)                    
+                pdf = pd.read_csv(pgm_proposals_path)
                 video_feature = np.load(pgm_features_path)
+                if not len(pdf) and self.mode == "train":
+                    continue
+                
                 pre_count = len(pdf)
                 if self.top_K > 0:
                     try:
@@ -655,13 +738,17 @@ class ProposalDataSet(data.Dataset):
                         pdf['score'] = pdf.xmin_score * pdf.xmax_score
                         pdf = pdf.sort_values(by="score", ascending=False)
                     pdf = pdf[:self.top_K]
-                    video_feature = video_feature[pdf.index]
+                    try:
+                        video_feature = video_feature[pdf.index]
+                    except Exception as e:
+                        print('WAT IS HTIS: ', pgm_proposals_path, pgm_features_path)
+                        raise
                     
                 # print(video_name, pre_count, len(pdf), video_feature.shape, pgm_proposals_path, pgm_features_path)
                 self.proposals[video_name] = pdf
                 self.features[video_name] = video_feature
                 self.indices.extend([(video_name, i) for i in range(len(pdf))])
-            print('Num indices: ', len(self.indices))
+            print('Num indices: ', len(self.indices), len(self.proposals), len(self.features))
 
     def __len__(self):
         if self.opt['pem_do_index'] > 0:

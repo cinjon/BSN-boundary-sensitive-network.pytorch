@@ -259,15 +259,18 @@ def plot_metric(opt,
     plt.setp(plt.axes().get_xticklabels(), fontsize=fn_size)
     plt.setp(plt.axes().get_yticklabels(), fontsize=fn_size)
     #plt.show()
-    save_path = os.path.join(opt['postprocessed_results_dir'], 'evaluation_result.jpg')
+    save_path = os.path.join(opt['postprocessed_results_dir'], 'evaluation_result.width%d.jpg' % opt['postproc_width_init'])
     plt.savefig(save_path)
 
     
 def evaluation_proposal(opt):
+    width_init = opt['postproc_width_init']
     if 'thumos' in opt['dataset']:
-        bsn_results = pd.read_csv(os.path.join(opt['postprocessed_results_dir'], 'thumos14_results.csv'))
+        bsn_results = pd.read_csv(os.path.join(opt['postprocessed_results_dir'], 'thumos14_results.width%d.csv' % width_init))
     elif 'gymnastics' in opt['dataset']:
-        bsn_results = pd.read_csv(os.path.join(opt['postprocessed_results_dir'], 'gym_results.csv'))        
+        bsn_results = pd.read_csv(os.path.join(opt['postprocessed_results_dir'], 'gym_results.width%d.csv' % width_init))        
+    elif 'activitynet' in opt['dataset']:
+        bsn_results = pd.read_csv(os.path.join(opt['postprocessed_results_dir'], 'activitynet_results.width%d.csv' % width_init))        
     ground_truth = pd.read_csv(opt['video_info'])
     
     # Computes average recall vs average number of proposals.
@@ -278,7 +281,7 @@ def evaluation_proposal(opt):
     interp_results = [(k, f(k)) for k in [50, 100, 200, 500, 1000]]
     interp_str = ', '.join(['%d: %.4f' % (k, v) for k, v in interp_results])
 
-    with open(os.path.join(opt['postprocessed_results_dir'], 'output.txt'), 'w') as f:
+    with open(os.path.join(opt['postprocessed_results_dir'], 'output.width%d.txt' % width_init), 'w') as f:
         f.write('[RESULTS] Performance on %s proposal task.\n' % opt['dataset'])
         f.write('\tArea Under the AR vs AN curve: {}%\n'.format(
             100. * float(area_under_curve) / average_nr_proposals[-1]))

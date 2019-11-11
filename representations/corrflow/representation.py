@@ -63,19 +63,19 @@ class Representation(nn.Module):
         # a straight shot linear layer. No good.
         
         self.opts = opts
-        self.inchannels = 32
-        
+
+        channels = 64 # 32
         self.repr_conv1 = nn.Sequential(
-            nn.Conv2d(64, 32, kernel_size=7, stride=2, padding=3, bias=False),
-            nn.BatchNorm2d(32),
+            nn.Conv2d(64, channels, kernel_size=7, stride=2, padding=3, bias=False), 
+            nn.BatchNorm2d(channels),
             nn.ReLU(),
         )
-        self.repr_layer1 = self.make_layer(ResidualBlock, 32, 2, stride=2)
-        self.repr_layer2 = self.make_layer(ResidualBlock, 32, 2, stride=2)
+        self.repr_layer1 = self.make_layer(ResidualBlock, channels, channels, 2, stride=2)
+        self.repr_layer2 = self.make_layer(ResidualBlock, channels, channels, 2, stride=2)
         if opts['dataset'] == 'gymnastics':
-            self.fc_layer = nn.Linear(3584, 400)
+            self.fc_layer = nn.Linear(7168, 400) # 7168, 3584
         elif opts['dataset'] == 'thumosimages':
-            self.fc_layer = nn.Linear(1920, 400)
+            self.fc_layer = nn.Linear(1920, 400) # 
         elif opts['dataset'] == 'activitynet':
             self.fc_layer = nn.Linear(2560, 400)
 
@@ -91,10 +91,11 @@ class Representation(nn.Module):
         out = self.fc_layer(out)
         return out
 
-    def make_layer(self, block, out_channels, num_blocks, stride):
+    def make_layer(self, block, initial_in, out_channels, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
+        in_channels = initial_in
         for stride in strides:
-            layers.append(block(self.inchannels, out_channels, stride))
-            self.inchannel = out_channels
+            layers.append(block(in_channels, out_channels, stride))
+            in_channels = out_channels
         return nn.Sequential(*layers)

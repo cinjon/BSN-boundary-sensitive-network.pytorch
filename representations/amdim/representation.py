@@ -62,15 +62,15 @@ class Representation(nn.Module):
         # a straight shot linear layer. No good.
         
         self.opts = opts
-        self.inchannels = 64
+        channels = 64
         
         self.repr_conv1 = nn.Sequential(
-            nn.Conv2d(2560, 64, kernel_size=7, stride=2, padding=3, bias=False),
-            nn.BatchNorm2d(64),
+            nn.Conv2d(2560, channels, kernel_size=7, stride=2, padding=3, bias=False),
+            nn.BatchNorm2d(channels),
             nn.ReLU(),
         )
-        # self.repr_layer1 = self.make_layer(ResidualBlock, 64, 2, stride=2)
-        # self.repr_layer2 = self.make_layer(ResidualBlock, 64, 2, stride=2)
+        self.repr_layer1 = self.make_layer(ResidualBlock, channels, channels, 2, stride=2)
+        self.repr_layer2 = self.make_layer(ResidualBlock, channels, channels, 2, stride=2)
         if opts['dataset'] == 'gymnastics':
             self.fc_layer = nn.Linear(2432, 400)
         elif opts['dataset'] == 'thumosimages':
@@ -84,20 +84,21 @@ class Representation(nn.Module):
         # bs*nf,2560,75,1
         out = self.repr_conv1(out)
         # thumosimages shape representation is [bs*nf, 64, 38, 1]
-        # out = self.repr_layer1(out)
+        out = self.repr_layer1(out)
         # print('3', out.shape)
         # # thumosimages shape representation is [800, 32, 10, 1]
-        # out = self.repr_layer2(out)
+        out = self.repr_layer2(out)
         # # thumosimages shape representation is [800, 32, 10, 1]
         # print('4', out.shape)
         out = out.view(out.shape[0], -1)
         out = self.fc_layer(out)
         return out
 
-    def make_layer(self, block, out_channels, num_blocks, stride):
+    def make_layer(self, block, initial_in, out_channels, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
         layers = []
+        in_channels = initial_in
         for stride in strides:
-            layers.append(block(self.inchannels, out_channels, stride))
-            self.inchannel = out_channels
+            layers.append(block(in_channels, out_channels, stride))
+            in_channels = out_channels
         return nn.Sequential(*layers)

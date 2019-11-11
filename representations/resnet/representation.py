@@ -7,6 +7,7 @@ import torch.nn.functional as F
 THUMOS_OUTPUT_DIM = 1000
 GYMNASTICS_OUTPUT_DIM = 1000
 ACTIVITYNET_OUTPUT_DIM = 1000
+GYMNASTICSFEATURES_OUTPUT_DIM = 2048
 
 
 class ResidualBlock(nn.Module):
@@ -63,32 +64,42 @@ class Representation(nn.Module):
         # a straight shot linear layer. No good.
         
         self.opts = opts
-        
+
+        channels = 64
         self.repr_conv1 = nn.Sequential(
-            nn.Conv2d(512, 128, kernel_size=7, stride=2, padding=3, bias=False),
-            nn.BatchNorm2d(128),
+            nn.Conv2d(64, channels, kernel_size=7, stride=2, padding=3, bias=False), 
+            nn.BatchNorm2d(channels),
             nn.ReLU(),
         )
-        self.repr_layer1 = self.make_layer(ResidualBlock, 128, 64, 2, stride=2)
-        self.repr_layer2 = self.make_layer(ResidualBlock, 64, 64, 2, stride=2)
+        self.repr_layer1 = self.make_layer(ResidualBlock, channels, channels, 2, stride=2)
+        self.repr_layer2 = self.make_layer(ResidualBlock, channels, channels, 2, stride=2)
+        
         if opts['dataset'] == 'gymnastics':
-            self.fc_layer = nn.Linear(2048, 400)
+            self.fc_layer = nn.Linear(1000, 400)
         elif opts['dataset'] == 'thumosimages':
-            self.fc_layer = nn.Linear(2048, 400)
+            self.fc_layer = nn.Linear(1000, 400)
         elif opts['dataset'] == 'activitynet':
+            self.fc_layer = nn.Linear(1000, 400)
+        elif opts['dataset'] == 'gymnasticsfeatures':
             self.fc_layer = nn.Linear(2048, 400)
 
     def forward(self, representation):
-        # thumosimages shape is [bs*nf, 512, 57, 32]
-        out = self.repr_conv1(representation)
-        # thumosimages shape is [bs*nf, 128, 29, 16]
-        out = self.repr_layer1(out)
-        # thumosimages shape is [bs*nf, 64, 15, 8]
-        out = self.repr_layer2(out)
-        # thumosimages shape is [bs*nf, 64, 8, 4]
-        out = out.view(out.shape[0], -1)
-        out = self.fc_layer(out)
-        return out
+        return self.fc_layer(out)
+        
+        # # thumosimages shape representation is [800, 64, 44, 80]
+        # print(representation.shape)
+        # out = self.repr_conv1(representation)
+        # print(out.shape)
+        # # thumosimages shape representation is [800, 32, 22, 40]
+        # out = self.repr_layer1(out)
+        # print(out.shape)
+        # # thumosimages shape representation is [800, 32, 11, 20]
+        # out = self.repr_layer2(out)
+        # print(out.shape)
+        # # thumosimages shape representation is [800, 32, 6, 10]
+        # out = out.view(out.shape[0], -1)
+        # out = self.fc_layer(out)
+        # return out
 
     def make_layer(self, block, initial_in, out_channels, num_blocks, stride):
         strides = [stride] + [1] * (num_blocks - 1)
@@ -98,3 +109,4 @@ class Representation(nn.Module):
             layers.append(block(in_channels, out_channels, stride))
             in_channels = out_channels
         return nn.Sequential(*layers)
+    

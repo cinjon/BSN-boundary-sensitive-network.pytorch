@@ -4,9 +4,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 
-THUMOS_OUTPUT_DIM = 512*32*57 
-GYMNASTICS_OUTPUT_DIM = 407040
-ACTIVITYNET_OUTPUT_DIM = 524288
+THUMOS_OUTPUT_DIM = 330752 # 512*32*57  # at imgSize=150 it's 330752
+GYMNASTICS_OUTPUT_DIM = 933888 # 407040 ... at imgSize=150, it's 330752 ... strange?
+ACTIVITYNET_OUTPUT_DIM = 184832 # 524288 ... at imgSize=150, it's 184832
 
 
 class ResidualBlock(nn.Module):
@@ -63,14 +63,14 @@ class Representation(nn.Module):
         # a straight shot linear layer. No good.
         
         self.opts = opts
-        
+        channels = 64 # 128
         self.repr_conv1 = nn.Sequential(
-            nn.Conv2d(512, 128, kernel_size=7, stride=2, padding=3, bias=False),
-            nn.BatchNorm2d(128),
+            nn.Conv2d(512, channels, kernel_size=7, stride=2, padding=3, bias=False),
+            nn.BatchNorm2d(channels),
             nn.ReLU(),
         )
-        self.repr_layer1 = self.make_layer(ResidualBlock, 128, 64, 2, stride=2)
-        self.repr_layer2 = self.make_layer(ResidualBlock, 64, 64, 2, stride=2)
+        self.repr_layer1 = self.make_layer(ResidualBlock, channels, channels, 2, stride=2)
+        self.repr_layer2 = self.make_layer(ResidualBlock, channels, channels, 2, stride=2)
         if opts['dataset'] == 'gymnastics':
             self.fc_layer = nn.Linear(2048, 400)
         elif opts['dataset'] == 'thumosimages':

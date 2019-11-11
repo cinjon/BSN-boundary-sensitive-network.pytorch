@@ -12,7 +12,7 @@ import torch.optim as optim
 from torchsummary import summary
 import numpy as np
 import opts
-from dataset import ThumosFeatures, ThumosImages, ProposalDataSet, GymnasticsSampler, GymnasticsImages, ProposalSampler, VideoDataset
+from dataset import ThumosFeatures, ThumosImages, ProposalDataSet, GymnasticsSampler, GymnasticsImages, GymnasticsFeatures, ProposalSampler, VideoDataset
 from models import TEM, PEM, partial_load, get_img_loader, AMDIMModel, get_video_transforms
 from loss_function import TEM_loss_function, PEM_loss_function
 import pandas as pd
@@ -42,7 +42,7 @@ def compute_metrics(sums, loss, count):
 
 def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt):
     model.train()
-    if opt['do_representation']:
+    if opt['do_representation'] and not opt['no_freeze']:
         model.module.set_eval_representation()
         
     count = 1
@@ -61,7 +61,9 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
             sys.exit(-1)
 
         # for thumosimages, input_data shape: [bs, 100, 3, 176, 320]
-        TEM_output = model(input_data)            
+        # print('Just before tem input: ', type(input_data))
+        # print(input_data[0])
+        TEM_output = model(input_data)
         loss = TEM_loss_function(label_action, label_start, label_end,
                                  TEM_output, opt)
         l2 = sum([(W**2).sum() for W in model.module.parameters()])
@@ -74,6 +76,7 @@ def train_TEM(data_loader, model, optimizer, epoch, global_step, comet_exp, opt)
         if opt['do_gradient_checkpointing']:
             model.zero_grad()
         total_loss.backward()
+        # print(model.module.representation_model.backbone.inception_5b_3x3.weight[0][0])        
         optimizer.step()
         global_step += 1
 
@@ -279,9 +282,9 @@ def _maybe_load_checkpoint(model, optimizer, global_step, epoch, directory):
 
     print('HAVE ckpts: ', ckpts)
     best_ckpt = sorted(ckpts, key=lambda k: int(k.split('.')[-2]), reverse=True)[0]
-    print('LOADING from ckpt!', best_ckpt)
-    checkpoint = torch.load(best_ckpt)
-    optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+    print('LOADING from ckpt!', directory, best_ckpt)
+    checkpoint = torch.load(os.path.join(directory, best_ckpt))
+    optimizer.load_state_dict(checkpoint['optimizer_dict'])
     model.load_state_dict(checkpoint['state_dict'])
     epoch = checkpoint['epoch']
     global_step = checkpoint['global_step']
@@ -301,9 +304,12 @@ def BSN_Train_TEM(opt):
             model, optimizer, global_step, epoch,
             os.path.join(opt["checkpoint_path"], opt['name']))
         if opt['representation_checkpoint']:
+            # print(model.representation_model.backbone.inception_5b_3x3.weight[0][0])
             partial_load(opt['representation_checkpoint'], model)
-        for param in model.representation_model.parameters():
-            param.requires_grad = False
+            # print(model.representation_model.backbone.inception_5b_3x3.weight[0][0])
+        if not opt['no_freeze']:
+            for param in model.representation_model.parameters():
+                param.requires_grad = False
         print(len([p for p in model.representation_model.parameters()]))
     else:
         model = TEM(opt)
@@ -321,18 +327,26 @@ def BSN_Train_TEM(opt):
           (sum(p.numel() for p in model.parameters()) / 1000000.0))
 
     if opt['dataset'] == 'gymnastics':
+        # default image_dir is '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12'
         img_loading_func = get_img_loader(opt)
         train_data_set = GymnasticsImages(
             opt, subset='Train', img_loading_func=img_loading_func,
-            image_dir='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12',
+            image_dir=opt['gym_image_dir'],
             video_info_path = os.path.join(opt['video_info'], 'Train_Annotation.csv')
         )
         train_sampler = GymnasticsSampler(train_data_set, opt['sampler_mode'])
         test_data_set = GymnasticsImages(
             opt, subset="Val", img_loading_func=img_loading_func,
-            image_dir='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12',
+            image_dir=opt['gym_image_dir'],
             video_info_path = os.path.join(opt['video_info'], 'Val_Annotation.csv')
         )
+    elif opt['dataset'] == 'gymnasticsfeatures':
+        # feature_dirs should roughly look like:
+        # /checkpoint/cinjon/spaceofmotion/sep052019/tsn.1024.426x240.12.no-oversample/csv/rgb,/checkpoint/cinjon/spaceofmotion/sep052019/tsn.1024.426x240.12.no-oversample/csv/flow
+        feature_dirs = opt['feature_dirs'].split(',')
+        train_data_set = GymnasticsFeatures(opt, subset='Train', feature_dirs=feature_dirs, video_info_path = os.path.join(opt['video_info'], 'Train_Annotation.csv'))
+        test_data_set = GymnasticsFeatures(opt, subset='Val', feature_dirs=feature_dirs, video_info_path = os.path.join(opt['video_info'], 'Val_Annotation.csv'))
+        train_sampler = None
     elif opt['dataset'] == 'thumosfeatures':
         feature_dirs = opt['feature_dirs'].split(',')
         train_data_set = ThumosFeatures(opt, subset='Val', feature_dirs=feature_dirs)
@@ -340,7 +354,6 @@ def BSN_Train_TEM(opt):
         train_sampler = None
     elif opt['dataset'] == 'thumosimages':
         img_loading_func = get_img_loader(opt)
-        
         train_data_set = ThumosImages(
             opt, subset='Val', img_loading_func=img_loading_func,
             image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_validation_tal.30',
@@ -447,8 +460,9 @@ def BSN_Train_PEM(opt):
         drop_last=False,
         collate_fn=collate_fn if not opt['pem_do_index'] else None)
 
+    subset = "validation" if opt['dataset'] == 'activitynet' else "test"
     test_loader = torch.utils.data.DataLoader(
-        ProposalDataSet(opt, subset="test"),
+        ProposalDataSet(opt, subset=subset),
         batch_size=model.module.batch_size,
         shuffle=True,
         num_workers=opt['data_workers'],
@@ -521,11 +535,22 @@ def BSN_inference_TEM(opt):
             opt,
             subset=opt['tem_results_subset'].title(),
             img_loading_func=img_loading_func,
-            image_dir='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12'
+            image_dir=opt['gym_image_dir'],
+            video_info_path = os.path.join(opt['video_info'], 'Full_Annotation.csv')            
         )
+    elif opt['dataset'] == 'gymnasticsfeatures':
+        # feature_dirs should roughly look like:
+        # /checkpoint/cinjon/spaceofmotion/sep052019/tsn.1024.426x240.12.no-oversample/csv/rgb,/checkpoint/cinjon/spaceofmotion/sep052019/tsn.1024.426x240.12.no-oversample/csv/flow
+        feature_dirs = opt['feature_dirs'].split(',')
+        dataset = GymnasticsFeatures(
+            opt, subset=opt['tem_results_subset'].title(),
+            feature_dirs=feature_dirs,
+            video_info_path = os.path.join(opt['video_info'], 'Full_Annotation.csv'))
     elif opt['dataset'] == 'thumosfeatures':
         feature_dirs = opt['feature_dirs'].split(',')
-        dataset = ThumosFeatures(opt, subset=opt['tem_results_subset'].title(), feature_dirs=feature_dirs)
+        dataset = ThumosFeatures(opt, subset=opt['tem_results_subset'].title(), feature_dirs=feature_dirs,
+            video_info_path=os.path.join(opt['video_info'], 'Full_Annotation.csv')
+        )
     elif opt['dataset'] == 'thumosimages':
         img_loading_func = get_img_loader(opt)
         dataset = ThumosImages(
@@ -533,7 +558,13 @@ def BSN_inference_TEM(opt):
             subset=opt['tem_results_subset'].title(),
             img_loading_func=img_loading_func,
             image_dir='/checkpoint/cinjon/thumos/rawframes.TH14_%s_tal.30' % opt['tem_results_subset'],
+            video_info_path=os.path.join(opt['video_info'], 'Full_Annotation.csv')
         )
+    elif opt['dataset'] == 'activitynet':
+        representation_module = opt['representation_module']
+        test_transforms  = get_video_transforms(
+            representation_module, False)
+        dataset = VideoDataset(opt, test_transforms, subset='full', fraction=1.0)
                 
     test_loader = torch.utils.data.DataLoader(
         dataset,
@@ -559,11 +590,12 @@ def BSN_inference_TEM(opt):
             print('Started enumerating!', flush=True)        
         # The data should be coming back s.t. consecutive data are from the same video.
         # until there is a breakpoint and it starts a new video.
+
         TEM_output = model(input_data).detach().cpu().numpy()
         batch_action = TEM_output[:, 0, :]
         batch_start = TEM_output[:, 1, :]
         batch_end = TEM_output[:, 2, :]
-        
+
         index_list = index_list.numpy()
         for batch_idx, full_idx in enumerate(index_list):
             item_video = video_name[batch_idx]
@@ -577,6 +609,7 @@ def BSN_inference_TEM(opt):
                 current_action = defaultdict(float)    
                 calc_time_list = defaultdict(int)
             elif item_video != current_video:
+                print('Next video: ', item_video, full_idx, flush=True)
                 column_frames = sorted(calc_time_list.keys())
                 column_action = [current_action[k] * 1. / calc_time_list[k] for k in column_frames]
                 column_start = [current_start[k] * 1. / calc_time_list[k] for k in column_frames]
@@ -756,8 +789,9 @@ if __name__ == '__main__':
     opt = vars(opt)
     opt['start_time'] = time.time()
     
-    # We use jobarray for activitynet so here we want to get the opt.
-    if opt['mode'] == 'jobarray_train':
+    # When we use jobarray, we need to get the opt.
+    mode = opt['mode']
+    if 'jobarray_train' in opt['mode']:
         jobid = int(os.getenv('SLURM_ARRAY_TASK_ID'))
         if not jobid:
             raise
@@ -765,5 +799,12 @@ if __name__ == '__main__':
         print(counter, job, '\n', opt)
         opt.update(job)
         print(opt, flush=True)
-        
-    main(opt)
+        if 'debug' in mode:
+            opt.update({'num_gpus': 2, 'data_workers': 12,
+                        'name': 'dbg', 'counter': 0,
+                        'tem_batch_size': 1,
+                        # 'gym_image_dir': '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12',
+                        'local_comet_dir': None})
+
+    if 'debugrun' not in mode:
+        main(opt)

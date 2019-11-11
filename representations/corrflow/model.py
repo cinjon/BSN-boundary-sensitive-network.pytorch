@@ -16,6 +16,7 @@ def r_prep(image, M):
     if h%M != 0: image = image[:-(h%M),]
     return transforms.ToTensor()(image)
 """
+import cv2
 from PIL import Image
 import torch
 import torch.nn as nn
@@ -49,8 +50,18 @@ def rgb_preprocess_jitter(image):
                         
 def img_loading_func(path, do_augment=False):
     # This should output RGB.
-    img = np.load(path) / 255.
-    img = img.astype(np.float32)
+    path = str(path)
+    if path.endswith('npy'):
+        img = np.load(path) / 255.
+        img = img.astype(np.float32)
+    else:
+        img = cv2.imread(path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = img.astype(np.float32)
+
+    # This wants to be small!
+    if np.max(img) > 1:
+        img = img / 255.0
 
     M = 8
     h, w = img.shape[0], img.shape[1]

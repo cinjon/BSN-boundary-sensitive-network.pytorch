@@ -44,7 +44,7 @@ def NMS(df, nms_threshold=0.75):
     return newDf
             
             
-def Soft_NMS(df, nms_threshold=0.75):
+def Soft_NMS(df, nms_threshold=0.75, width_init=300):
     df = df.sort_values(by="score", ascending=False)
     
     tstart = list(df.xmin.values[:])
@@ -62,10 +62,10 @@ def Soft_NMS(df, nms_threshold=0.75):
                 tmp_iou = IOU(tstart[max_index], tend[max_index], tstart[idx],
                               tend[idx])
                 tmp_width = tend[max_index] - tstart[max_index]
-                tmp_width = tmp_width / 300
+                tmp_width = tmp_width / width_init
                 if tmp_iou > 0.5 + 0.3 * tmp_width:  #*1/(1+np.exp(-max_index)):
                     tscore[idx] = tscore[idx] * np.exp(
-                        -np.square(tmp_iou) / 0.75)
+                        -np.square(tmp_iou) / nms_threshold)
                     
         rstart.append(tstart[max_index])
         rend.append(tend[max_index])
@@ -100,6 +100,8 @@ def BSN_post_processing(opt):
     video_list = []
     
     pem_inference_results = opt['pem_inference_results_dir']
+    width_init = opt['postproc_width_init']
+    
     for num, video_name in enumerate(videoNameList):
         if num % 25 == 0:
             print(num, len(videoNameList), video_name)
@@ -112,7 +114,7 @@ def BSN_post_processing(opt):
             continue
 
         df['score'] = df.iou_score.values[:] * df.xmin_score.values[:] * df.xmax_score.values[:]
-        sdf = Soft_NMS(df, 0.5)
+        sdf = Soft_NMS(df, 0.5, width_init=width_init)
         for j in range(min(1500, len(sdf))):
             xmin_list.append(sdf.xmin.values[j])
             xmax_list.append(sdf.xmax.values[j])
@@ -132,7 +134,9 @@ def BSN_post_processing(opt):
         os.makedirs(output_dir)
 
     if 'thumos' in opt['dataset']:
-        outfile = os.path.join(output_dir, 'thumos14_results.csv')        
+        outfile = os.path.join(output_dir, 'thumos14_results.width%d.csv' % width_init) 
     elif 'gymnastics' in opt['dataset']:
-        outfile = os.path.join(output_dir, 'gym_results.csv')        
+        outfile = os.path.join(output_dir, 'gym_results.width%d.csv' % width_init)
+    elif 'activitynet' in opt['dataset']:
+        outfile = os.path.join(output_dir, 'activitynet_results.width%d.csv' % width_init)
     outDf.to_csv(outfile, index=False)

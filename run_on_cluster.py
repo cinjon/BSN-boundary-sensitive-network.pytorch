@@ -97,6 +97,7 @@ def _run_batch(job,
         
     jobcommand = "python main.py %s" % flagstring
     print(jobcommand)
+    # print(jobname)
 
     slurmfile = os.path.join(slurm_scripts, jobname + '.slurm')
 
@@ -126,7 +127,7 @@ def _run_batch(job,
         f.write(jobcommand + "\n")
 
     s = "sbatch %s" % os.path.join(slurm_scripts, jobname + ".slurm")
-    # os.system(s)
+    os.system(s)
 
     
 def fb_run_batch(job, counter, email, code_directory):

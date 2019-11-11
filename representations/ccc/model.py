@@ -12,17 +12,20 @@ from . import resnet_res4s1
 from . import inflated_resnet
 from .. import video_transforms, functional_video
 
+from cv2 import IMREAD_UNCHANGED
+
+imgSize = 256
 
 transforms_augment_video = transforms.Compose([
     video_transforms.ToTensorVideo(),
-    video_transforms.ResizeVideo((256, 256), interpolation='nearest'),
+    video_transforms.ResizeVideo((imgSize, imgSize), interpolation='nearest'),
     video_transforms.RandomHorizontalFlipVideo(p=0.5),    
     video_transforms.NormalizeVideo(mean=[0.485, 0.456, 0.406],
                                     std=[0.229, 0.224, 0.225])
 ])
 transforms_regular_video = transforms.Compose([
     video_transforms.ToTensorVideo(),
-    video_transforms.ResizeVideo((256, 256), interpolation='nearest'),
+    video_transforms.ResizeVideo((imgSize, imgSize), interpolation='nearest'),
     video_transforms.NormalizeVideo(mean=[0.485, 0.456, 0.406],
                                     std=[0.229, 0.224, 0.225])
 ])
@@ -66,7 +69,12 @@ def to_torch(ndarray):
 
 
 def load_image(img_path):
-    img = np.load(img_path)
+    img_path = str(img_path)
+    if img_path.endswith('npy'):
+        img = np.load(img_path)
+    else:
+        img = cv2.imread(img_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
     img = img.astype(np.float32) / 255.0
     img = img.copy()
     return im_to_torch(img)
@@ -92,9 +100,8 @@ def fliplr(x):
 
 
 def img_loading_func(path, do_augment=False):
-    imgSize = 256
-    
     img = load_image(path)
+    # Ok, so this was fine. It was actually rgb. It was just ... distorted.
     ht, wd = img.size(1), img.size(2)
     if ht <= wd:
         ratio  = float(wd) / float(ht)
@@ -109,8 +116,8 @@ def img_loading_func(path, do_augment=False):
         if random.random() > 0.5:
             img = torch.from_numpy(fliplr(img.numpy())).float()
             
-    mean=[0.485, 0.456, 0.406]
-    std=[0.229, 0.224, 0.225]
+    mean= [0.485, 0.456, 0.406]
+    std= [0.229, 0.224, 0.225]
     img = color_normalize(img, mean, std)
     return img
 

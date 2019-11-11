@@ -77,10 +77,21 @@ class Model(nn.Module):
     def __init__(self, opts):
         super(Model, self).__init__()
         # Spatial Feature Encoder φ
-        self.resnet = resnet50(pretrained=True, progress=True)
+        self.opts = opts
+        if self.opts['dataset'] != 'gymnasticsfeatures':
+            print('Doing resnet', flush=True)
+            self.resnet = resnet50(pretrained=True, progress=True)
+        else:
+            print('NOT DOING resnet', flush=True)
         
     def forward(self, imgs):
         # video feature clip1
+        if self.opts['dataset'] == 'gymnasticsfeatures':
+            # we are doing TSN features.
+            bs, num_videoframes, repr_size = imgs.shape
+            imgs = imgs.view(bs * num_videoframes, repr_size)
+            return imgs
+        
         batch_size, num_videoframes, ch, h, w = imgs.shape
         imgs = imgs.view(batch_size * num_videoframes, ch, h, w)
         # imgs = imgs.contiguous()

@@ -22,7 +22,7 @@ anno_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytor
 func = fb_run_batch
 
 
-def do_fb_jobarray(counter, job, representation_module, time, find_counter, do_job=False):
+def do_fb_jobarray(counter, job, representation_module, time, find_counter, do_job=False, resnet_dfc=False, ccc_feat='dfc', amdim_feat='both', finetuned=False, corrflow_feat='both'):
     num_gpus = 8 # NOTE!
     num_cpus = num_gpus * 10
     gb = num_gpus * 64
@@ -41,16 +41,30 @@ def do_fb_jobarray(counter, job, representation_module, time, find_counter, do_j
     job['data_workers'] = max(job['data_workers'], 12)
     
     representation_checkpoint, representation_tags = _get_representation_info(representation_module)
+    if finetuned:
+        if representation_module == 'ccc':
+            representation_checkpoint = '/checkpoint/cinjon/spaceofmotion/ccc/ccc.ftgym.pth'
+        else:
+            raise
+            
     jobarray = []
 
     for do_feat_conversion in [False, True]:
         for do_augment in [True, False]:
             do_gradient_checkpointing = False
             if do_feat_conversion:
-                if representation_module == 'resnet':
+                if representation_module == 'resnet' and not resnet_dfc:
+                    continue
+                if representation_module == 'ccc' and ccc_feat == 'nfc':
+                    continue
+                if representation_module == 'amdim' and amdim_feat == 'nfc':
+                    continue
+                if representation_module == 'corrflow' and corrflow_feat == 'nfc':
                     continue
             else:
-                if representation_module == 'ccc':
+                if representation_module == 'ccc' and ccc_feat == 'dfc':
+                    continue
+                if representation_module == 'corrflow' and corrflow_feat == 'dfc':
                     continue
                 elif representation_module == 'amdim':
                     do_gradient_checkpointing = True
@@ -70,12 +84,18 @@ def do_fb_jobarray(counter, job, representation_module, time, find_counter, do_j
                                 _job = {k: v for k, v in job.items()}
                                 _job['counter'] = counter
                                 if representation_module == 'corrflow':
-                                    # Can this be higher???
-                                    tem_batch_size = 4
+                                    if do_feat_conversion:
+                                        tem_batch_size = 4
+                                    else:
+                                        tem_batch_size = 1
                                 elif representation_module == 'resnet':
-                                    tem_batch_size = 4
+                                    # Increased this after the 3hr ones...
+                                    tem_batch_size = 6
                                 elif not do_feat_conversion:
-                                    tem_batch_size = 2
+                                    if representation_module == 'ccc':
+                                        tem_batch_size = 1
+                                    else:
+                                        tem_batch_size = 2
                                 else:
                                     tem_batch_size = 4
                                     
@@ -949,7 +969,7 @@ def run(find_counter=None):
                                     return _job
                         
                                 # if not find_counter:
-                                    # func(_job, counter, email, code_directory)
+                                #     func(_job, counter, email, code_directory)
 
                                     
     # print("Counter: ", counter)   # 1040
@@ -1159,10 +1179,521 @@ def run(find_counter=None):
     for time in [3, 36]:
         for representation_module in ['resnet', 'corrflow', 'ccc', 'amdim']:
             counter, _job = do_fb_jobarray(
-                counter, job, representation_module, time, find_counter=find_counter, do_job=True)
+                counter, job, representation_module, time, find_counter=find_counter, do_job=False)
+            if find_counter and _job:
+                return counter, _job
+
+    job = {
+        'name': '2019.10.31.resnetdfc',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'representation_module': 'resnet',
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+    }
+    # print('Counter Before ResnetDFC: ', counter) # 3056
+    for dataset in ['gymnastics', 'thumosimages', 'activitynet']:
+        # For some reason ... these did not do activiynet.
+        _job = {k: v for k, v in job.items()}
+        _job['dataset'] = dataset
+        if dataset == 'activitynet':
+            _job.update({
+                'dist_videoframes': 400,
+                'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/video_info_with_subset.fps24.csv',
+                'train_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/train_keys_split.24fps.txt',
+                'val_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/val_keys_split.24fps.txt'
+            })
+        elif dataset == 'thumosimages':
+            _job.update({
+                'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations'
+            })
+        elif dataset == 'gymnastics':
+            _job.update({
+                'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations'
+            })
+        counter, _job = do_fb_jobarray(
+            counter, _job, 'resnet', time=6, find_counter=find_counter, do_job=False, resnet_dfc=True)
+        if find_counter and _job:
+            return counter, _job
+
+    # We stopped the activitynet stuff before doing the big job. Let's start it again here.
+    job = {
+        'name': '2019.10.31.activitynet',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'dist_videoframes': 400,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'activitynet',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/video_info_with_subset.fps24.csv',
+        'train_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/train_keys_split.24fps.txt',
+        'val_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/val_keys_split.24fps.txt',
+    }
+    num_gpus = 8
+    # print('Counter Before ActivityNet Again: ', counter)  # 3344
+    for time in [28]:
+        for representation_module in ['resnet', 'corrflow', 'ccc', 'amdim']:
+            counter, _job = do_fb_jobarray(
+                counter, job, representation_module, time, find_counter=find_counter, do_job=False, resnet_dfc=True)
+            if find_counter and _job:
+                return counter, _job
+
+
+    # TSN on Gymnastics
+    job = {
+        'name': '2019.11.01.tsngym',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'gymnasticsfeatures',
+        'representation_module': 'resnet',
+        'feature_dirs': '/checkpoint/cinjon/spaceofmotion/sep052019/tsn.1024.426x240.12.no-oversample/csv/rgb,/checkpoint/cinjon/spaceofmotion/sep052019/tsn.1024.426x240.12.no-oversample/csv/flow',
+        'sampler_mode': 'off',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',        
+    }
+    num_gpus = 8
+    # print('Counter Before TSN Features: ', counter) # 3680
+    for do_feat_conversion in [False, True]:
+        for tem_milestones in ['5,15', '5,20']:
+            for tem_step_gamma in [0.1, 0.5]:
+                for lr in [1e-4, 3e-4]:
+                    for tem_l2_loss in [0, 0.01, 0.005]:
+                        for tem_weight_decay in [0, 1e-4]:
+                            if tem_weight_decay > 0 and tem_l2_loss > 0:
+                                continue
+                            if tem_weight_decay == 0 and tem_l2_loss == 0:
+                                continue
+                                
+                            counter += 1
+                            _job = {k: v for k, v in job.items()}
+                            _job['tem_batch_size'] = 8
+                            _job['num_gpus'] = num_gpus
+                                
+                            _job['name'] = '%s-%05d' % (_job['name'], counter)
+                            _job['num_cpus'] = num_gpus * 10
+                            _job['gb'] = 64 * num_gpus
+                            
+                            _job['tem_training_lr'] = lr
+                            _job['tem_lr_milestones'] = tem_milestones
+                            _job['tem_step_gamma'] = tem_step_gamma
+                            _job['tem_l2_loss'] = tem_l2_loss
+                            _job['tem_weight_decay'] = tem_weight_decay
+                            _job['do_feat_conversion'] = do_feat_conversion
+                            _job['time'] = 5
+                                    
+                            if find_counter == counter:
+                                return _job
+                                    
+                            # if not find_counter:
+                            #     func(_job, counter, email, code_directory)
+
+
+    # TSN on Gymnastics
+    job = {
+        'name': '2019.11.05.cccnfc',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'do_feat_conversion': False,
+        'representation_module': 'ccc',
+        'feature_dirs': '/checkpoint/cinjon/spaceofmotion/sep052019/tsn.1024.426x240.12.no-oversample/csv/rgb,/checkpoint/cinjon/spaceofmotion/sep052019/tsn.1024.426x240.12.no-oversample/csv/flow',
+        'sampler_mode': 'off',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',        
+    }
+    num_gpus = 8
+    print('Counter Before CCC NFC: ', counter) # 3680
+    for dataset in ['gymnastics', 'thumosimages', 'activitynet']:
+        time = 16 if dataset != 'activitynet' else 28
+        _job = {k: v for k, v in job.items()}
+        _job['dataset'] = dataset
+        if dataset == 'activitynet':
+            _job.update({
+                'dist_videoframes': 400,
+                'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/video_info_with_subset.fps24.csv',
+                'train_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/train_keys_split.24fps.txt',
+                'val_video_file_list': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/activitynet_annotations/video_dataset_files/val_keys_split.24fps.txt'
+            })
+        elif dataset == 'thumosimages':
+            _job.update({
+                'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations'
+            })
+        elif dataset == 'gymnastics':
+            _job.update({
+                'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations'
+            })
+        counter, _job = do_fb_jobarray(
+            counter, _job, 'ccc', time, find_counter=find_counter, do_job=False, ccc_feat='nfc')
+        if find_counter and _job:
+            return counter, _job
+                
+
+    # AMDIM on Gymnastics and Thumos w NFC
+    job = {
+        'name': '2019.11.07',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'representation_module': 'amdim',
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'representation_checkpoint': '/checkpoint/cinjon/amdim/_ckpt_epoch_434.ckpt',
+        'representation_tags': '/checkpoint/cinjon/amdim/meta_tags.csv',
+        'do_feat_conversion': False,
+        'sampler_mode': 'off',
+    }
+    num_gpus = 8
+    # print('Counter Before AMDIM NFC: ', counter) # 3872
+    for dataset in ['gymnastics', 'thumosimages']:
+        time = 16
+        _job = {k: v for k, v in job.items()}
+        _job['dataset'] = dataset
+        if dataset == 'thumosimages':
+            _job.update({
+                'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations'
+            })
+        elif dataset == 'gymnastics':
+            _job.update({
+                'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations'
+            })
+        counter, _job = do_fb_jobarray(
+            counter, _job, 'amdim', time, find_counter=find_counter, do_job=False, amdim_feat='nfc')
+        if find_counter and _job:
+            return counter, _job
+
+
+    # TSN on Gymnastics w just rgb.
+    job = {
+        'name': '2019.11.07.tsngymrgb',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'gymnasticsfeatures',
+        'representation_module': 'resnet',
+        'feature_dirs': '/checkpoint/cinjon/spaceofmotion/sep052019/tsn.1024.426x240.12.no-oversample/csv/rgb',
+        'sampler_mode': 'off',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',        
+    }
+    num_gpus = 8
+    # print('Counter Before TSN Features: ', counter) 
+    for do_feat_conversion in [False]:
+        for tem_milestones in ['5,15', '5,20']:
+            for tem_step_gamma in [0.1, 0.5]:
+                for lr in [1e-4, 3e-4]:
+                    for tem_l2_loss in [0, 0.01, 0.005]:
+                        for tem_weight_decay in [0, 1e-4]:
+                            if tem_weight_decay > 0 and tem_l2_loss > 0:
+                                continue
+                            if tem_weight_decay == 0 and tem_l2_loss == 0:
+                                continue
+                                
+                            counter += 1
+                            _job = {k: v for k, v in job.items()}
+                            _job['tem_batch_size'] = 8
+                            _job['num_gpus'] = num_gpus
+                                
+                            _job['name'] = '%s-%05d' % (_job['name'], counter)
+                            _job['num_cpus'] = num_gpus * 10
+                            _job['gb'] = 64 * num_gpus
+                            
+                            _job['tem_training_lr'] = lr
+                            _job['tem_lr_milestones'] = tem_milestones
+                            _job['tem_step_gamma'] = tem_step_gamma
+                            _job['tem_l2_loss'] = tem_l2_loss
+                            _job['tem_weight_decay'] = tem_weight_decay
+                            _job['do_feat_conversion'] = do_feat_conversion
+                            _job['time'] = 5
+                                    
+                            if find_counter == counter:
+                                return _job
+                                    
+                            # if not find_counter:
+                            #     func(_job, counter, email, code_directory)
+
+
+    # TSN on Gymnastics w just rgb. This time, we are using the new features.
+    job = {
+        'name': '2019.11.09.tsngymrgb',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'gymnasticsfeatures',
+        'representation_module': 'resnet',
+        'feature_dirs': '/checkpoint/cinjon/spaceofmotion/sep052019/tsn.1024.240x426.12.no-oversample/csv/rgb',
+        'sampler_mode': 'off',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',
+    }
+    num_gpus = 8
+    print('Counter Before TSN Features: ', counter)  # 39992
+    for do_feat_conversion in [False]:
+        for tem_milestones in ['5,15', '5,20']:
+            for tem_step_gamma in [0.1, 0.5]:
+                for lr in [1e-4, 3e-4]:
+                    for tem_l2_loss in [0, 0.01, 0.005]:
+                        for tem_weight_decay in [0, 1e-4]:
+                            if tem_weight_decay > 0 and tem_l2_loss > 0:
+                                continue
+                            if tem_weight_decay == 0 and tem_l2_loss == 0:
+                                continue
+                                
+                            counter += 1
+                            _job = {k: v for k, v in job.items()}
+                            _job['tem_batch_size'] = 8
+                            _job['num_gpus'] = num_gpus
+                                
+                            _job['name'] = '%s-%05d' % (_job['name'], counter)
+                            _job['num_cpus'] = num_gpus * 10
+                            _job['gb'] = 64 * num_gpus
+                            
+                            _job['tem_training_lr'] = lr
+                            _job['tem_lr_milestones'] = tem_milestones
+                            _job['tem_step_gamma'] = tem_step_gamma
+                            _job['tem_l2_loss'] = tem_l2_loss
+                            _job['tem_weight_decay'] = tem_weight_decay
+                            _job['do_feat_conversion'] = do_feat_conversion
+                            _job['time'] = 7
+                                    
+                            if find_counter == counter:
+                                return _job
+                                    
+                            # if not find_counter:
+                            #     func(_job, counter, email, code_directory)
+
+
+    # Do AMDIM, CCC, and CorrFlow with gymnastics as the new one.
+    job = {
+        'name': '2019.11.09.gym',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'gymnastics',
+        'sampler_mode': 'off',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',
+        'gym_image_dir': '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.240x426.12.tsn.12'        
+    }
+    num_gpus = 8
+    print('Counter Before Gymnastics Again: ', counter)   # 4016
+    for time in [12]:
+        for representation_module in ['corrflow', 'ccc', 'amdim']:
+            counter, _job = do_fb_jobarray(
+                counter, job, representation_module, time, find_counter=find_counter, do_job=False, resnet_dfc=True, ccc_feat='dfc', amdim_feat='both')
+            if find_counter and _job:
+                return counter, _job
+
+
+    # Do AMDIM, CCC, and CorrFlow with gymnastics as the new one.
+    job = {
+        'name': '2019.11.09.gym',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'gymnastics',
+        'sampler_mode': 'off',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',
+        'gym_image_dir': '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.240x426.12.tsn.12'        
+    }
+    num_gpus = 8
+    print('Counter Before Gymnastics Again: ', counter)   # 4016
+    for time in [16]:
+        for representation_module in ['corrflow', 'ccc', 'amdim']:
+            counter, _job = do_fb_jobarray(
+                counter, job, representation_module, time, find_counter=find_counter, do_job=False, resnet_dfc=True, ccc_feat='dfc', amdim_feat='both')
             if find_counter and _job:
                 return counter, _job
             
-    
+
+    # Do CCC with finetuned gymnastics (newer one)
+    job = {
+        'name': '2019.11.09.ft',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'gymnastics',
+        'sampler_mode': 'off',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',
+        'gym_image_dir': '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.240x426.12.tsn.12'        
+    }
+    num_gpus = 8
+    print('Counter Before finetuned ccc Again: ', counter)   # 4496
+    for time in [16]:
+        for representation_module in ['ccc']:
+            counter, _job = do_fb_jobarray(
+                counter, job, representation_module, time, find_counter=find_counter, do_job=False, ccc_feat='both', finetuned=True)
+            if find_counter and _job:
+                return counter, _job
+
+
+    # Do TSN with the representation inside.
+    job = {
+        'name': '2019.11.10.tsnrgb',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'gymnastics',
+        'sampler_mode': 'off',
+        'representation_module': 'tsn',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',
+        'gym_image_dir': '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.240x426.12.tsn.12',
+        'representation_checkpoint': '/private/home/cinjon/Code/mmaction/modelzoo/tsn_2d_rgb_bninception_seg3_f1s1_b32_g8-98160339.pth',
+    }
+    num_gpus = 8
+    print('Counter Before TSN repr: ', counter)  #4592
+    for no_freeze in [False, True]:
+        for do_feat_conversion in [False, True]:
+            if no_freeze and do_feat_conversion:
+                # We don't need to do both of these.
+                continue
+            
+            for tem_milestones in ['5,15', '5,20']:
+                for tem_step_gamma in [0.1, 0.5]:
+                    for lr in [1e-4, 3e-4]:
+                        for tem_l2_loss in [0, 0.01, 0.005]:
+                            for tem_weight_decay in [0, 1e-4]:
+                                if tem_weight_decay > 0 and tem_l2_loss > 0:
+                                    continue
+                                if tem_weight_decay == 0 and tem_l2_loss == 0:
+                                    continue
+                                
+                                counter += 1
+                                _job = {k: v for k, v in job.items()}
+                                _job['tem_batch_size'] = 4
+                                _job['num_gpus'] = num_gpus
+                                _job['no_freeze'] = no_freeze
+                                
+                                _job['name'] = '%s-%05d' % (_job['name'], counter)
+                                _job['num_cpus'] = num_gpus * 10
+                                _job['gb'] = 64 * num_gpus
+                                
+                                _job['tem_training_lr'] = lr
+                                _job['tem_lr_milestones'] = tem_milestones
+                                _job['tem_step_gamma'] = tem_step_gamma
+                                _job['tem_l2_loss'] = tem_l2_loss
+                                _job['tem_weight_decay'] = tem_weight_decay
+                                _job['do_feat_conversion'] = do_feat_conversion
+                                _job['time'] = 12
+                                
+                                if find_counter == counter:
+                                    return _job
+                                    
+                                # if not find_counter:
+                                #     func(_job, counter, email, code_directory)
+
+
+    # Do CCC, AMDIM, CorrFlow, and ResNet with no_freeze on gymnastics (newer one)
+    job = {
+        'name': '2019.11.10.nf',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'gymnastics',
+        'sampler_mode': 'off',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',
+        'gym_image_dir': '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.240x426.12.tsn.12',
+        'no_freeze': True
+    }
+    num_gpus = 8
+    print('Counter Before finetuned ccc Again: ', counter)   # 4496
+    for time in [16]:
+        for representation_module in ['amdim', 'ccc', 'corrflow']:
+            counter, _job = do_fb_jobarray(
+                counter, job, representation_module, time, find_counter=find_counter, do_job=representation_module == 'ccc', ccc_feat='nfc', resnet_dfc=False, amdim_feat='nfc', corrflow_feat='nfc')
+            if find_counter and _job:
+                return counter, _job
+                                
+
+    # Redoing CCC with finetuned gymnastics (newer one) on NFC
+    job = {
+        'name': '2019.11.09.ft',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'dataset': 'gymnastics',
+        'sampler_mode': 'off',
+        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations',
+        'gym_image_dir': '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.240x426.12.tsn.12'
+    }
+    num_gpus = 8
+    print('Counter Before finetuned ccc Again: ', counter)   # 4496
+    for time in [16]:
+        for representation_module in ['ccc']:
+            counter, _job = do_fb_jobarray(
+                counter, job, representation_module, time, find_counter=find_counter, do_job=True, ccc_feat='nfc', finetuned=True)
+            if find_counter and _job:
+                return counter, _job
+            
+                                
 if __name__ == '__main__':
     run()
