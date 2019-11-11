@@ -89,9 +89,13 @@ def do(find_counter=None, do_job=False):
     job = {
         'name': '2019.11.11', 'num_classes': 10
     }
-    for model in ['ccc', 'resnet']:
+    for model in ['ccc', 'resnet', 'amdim', 'corrflow']:
         _job = job.copy()
         _job['model'] = model
         counter, _job = do_jobarray(counter, _job, time=5, find_counter=find_counter, do_job=do_job)
         if find_counter:
             return counter, _job
+
+
+if __name__ == '__main__':
+    do(do_job=True)
