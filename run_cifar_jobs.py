@@ -3,28 +3,36 @@ import sys
 
 
 def do_jobarray(counter, job, time, find_counter, do_job=False):
-    code_directory = '/home/resnick/Code/BSN-boundary-sensitive-network.pytorch'
+    # code_directory = '/home/resnick/Code/BSN-boundary-sensitive-network.pytorch'
+    code_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch'    
     num_gpus = 1
     num_cpus = num_gpus * 10
-    gb = num_gpus * 16
-    directory = '/misc/kcgscratch1/ChoGroup/resnick/spaceofmotion'
+    # gb = num_gpus * 16
+    gb = num_gpus * 64    
+    directory = '/checkpoint/cinjon/spaceofmotion/bsn'
     slurm_logs = os.path.join(directory, 'slurm_logs')
     slurm_scripts = os.path.join(directory, 'slurm_scripts')
+    
+    comet_dir = os.path.join(directory, 'comet', 'cifar-%d' % job['num_classes'], job['model'].lower())
+    if not os.path.exists(comet_dir):
+        os.makedirs(comet_dir)        
+    job['local_comet_dir'] = comet_dir
+    job['time'] = time
+    
     job['num_workers'] = min(int(2.5 * num_gpus), num_cpus - num_gpus)
     
     jobarray = []
 
     model = job['model']
     if model == 'resnet':
-        batch_sizes = [128]
+        batch_sizes = [256]
     else:
-        batch_sizes = [16]
-
-    lrs = [0.3, 0.1]
+        batch_sizes = [64]
+    lrs = [0.3, 0.1, 0.03]
     min_lrs = [0.0003, 0.00003]
-    weight_decays = [0.0005, 0.00005]
-    lr_intervals = [10, 20]
-    epochs = 250
+    weight_decays = [0.0, 0.0005, 0.00005]
+    lr_intervals = [20, 50]
+    epochs = 500
     
     for bs in batch_sizes:
         for lr in lrs:
@@ -72,9 +80,9 @@ def do_jobarray(counter, job, time, find_counter, do_job=False):
             f.write("#SBATCH --error=%s\n" % os.path.join(
                 slurm_logs, jobname + ".%A.%a.err"))
 
-            # f.write("module purge" + "\n")
-            # f.write("module load cuda/10.0\n")            
-            f.write("source activate somtorch\n")
+            f.write("module purge" + "\n")
+            f.write("module load cuda/10.0\n")            
+            f.write("source activate onoff\n")
             f.write("SRCDIR=%s\n" % code_directory)
             f.write("cd ${SRCDIR}\n")
             f.write(jobcommand + "\n")
@@ -86,16 +94,50 @@ def do_jobarray(counter, job, time, find_counter, do_job=False):
 
 def do(find_counter=None, do_job=False):
     counter = 0
+    
     job = {
         'name': '2019.11.11', 'num_classes': 10
     }
     for model in ['ccc', 'resnet', 'amdim', 'corrflow']:
         _job = job.copy()
         _job['model'] = model
-        counter, _job = do_jobarray(counter, _job, time=5, find_counter=find_counter, do_job=do_job)
-        if find_counter:
+        counter, _job = do_jobarray(counter, _job, time=5, find_counter=find_counter, do_job=False)
+        if find_counter and find_counter == counter:
             return counter, _job
 
+        
+    job = {
+        'name': '2019.11.11.c100', 'num_classes': 100
+    }
+    for model in ['ccc', 'resnet', 'amdim', 'corrflow']:
+        _job = job.copy()
+        _job['model'] = model
+        counter, _job = do_jobarray(counter, _job, time=3, find_counter=find_counter, do_job=False)
+        if find_counter and find_counter == counter:
+            return counter, _job
+
+
+    job = {
+        'name': '2019.11.12.c100', 'num_classes': 100
+    }
+    for model in ['ccc', 'resnet', 'amdim', 'corrflow']:
+        _job = job.copy()
+        _job['model'] = model
+        counter, _job = do_jobarray(counter, _job, time=10, find_counter=find_counter, do_job=False)
+        if find_counter and find_counter == counter:
+            return counter, _job
+
+
+    job = {
+        'name': '2019.11.12.c100', 'num_classes': 100
+    }
+    for model in ['ccc', 'resnet', 'corrflow']:
+        _job = job.copy()
+        _job['model'] = model
+        counter, _job = do_jobarray(counter, _job, time=10, find_counter=find_counter, do_job=do_job)
+        if find_counter and find_counter == counter:
+            return counter, _job
+        
 
 if __name__ == '__main__':
     do(do_job=True)

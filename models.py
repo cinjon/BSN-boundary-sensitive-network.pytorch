@@ -13,7 +13,9 @@ from representations.ccc.model import transforms_augment_video as ccc_augment_tr
 from representations.ccc.model import transforms_regular_video as ccc_regular_transforms
 from representations.ccc.representation import Representation as CCCRepresentation
 from representations.ccc.representation import THUMOS_OUTPUT_DIM as CCCThumosDim
+from representations.ccc.representation import THUMOS_OUTPUT_DIM_128 as CCCThumosDim128
 from representations.ccc.representation import GYMNASTICS_OUTPUT_DIM as CCCGymnasticsDim
+from representations.ccc.representation import GYMNASTICS_OUTPUT_DIM_128 as CCCGymnasticsDim128
 from representations.ccc.representation import ACTIVITYNET_OUTPUT_DIM as CCCActivitynetDim
 
 from representations.corrflow.model import Model as CorrFlowModel
@@ -48,6 +50,7 @@ from representations.amdim.representation import ACTIVITYNET_OUTPUT_DIM as AMDIM
 from representations.tsn.model import tsn_model as tsn_model_func
 from representations.tsn.model import img_loading_func as tsn_img_loading_func
 from representations.tsn.model import GYMNASTICS_OUTPUT_DIM as TSNGymDim
+from representations.tsn.model import THUMOS_OUTPUT_DIM as TSNThumosDim
 from representations.tsn.representation import Representation as TSNRepresentation
 
 
@@ -96,6 +99,9 @@ def _get_module(key):
         ),
         'tsn-gymnastics': (
             tsn_model_func, TSNRepresentation, tsn_img_loading_func, TSNGymDim
+        ),
+        'tsn-thumosimages': (
+            tsn_model_func, TSNRepresentation, tsn_img_loading_func, TSNThumosDim
         ),
     }.get(key)
 
@@ -152,6 +158,11 @@ class TEM(torch.nn.Module):
         if self.do_representation:
             key = '%s-%s' % (opt['representation_module'], opt['dataset'])                
             model, representation, _, representation_dim = _get_module(key)
+            if opt['representation_module'] == 'ccc' and opt['ccc_img_size'] == 128:
+                if opt['dataset'] == 'gymnastics':
+                    representation_dim = CCCGymnasticsDim128
+                elif opt['dataset'] == 'thumosimages':
+                    representation_dim = CCCThumosDim128                    
             tags_csv = opt['representation_tags']
             if tags_csv:
                 hparams = load_hparams_from_tags_csv(tags_csv)

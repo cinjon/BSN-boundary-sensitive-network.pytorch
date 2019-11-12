@@ -99,18 +99,20 @@ def fliplr(x):
     return x.astype(float)
 
 
-def img_loading_func(path, do_augment=False):
+def img_loading_func(path, do_augment=False, img_size=None):
+    img_size = img_size or imgSize
+    
     img = load_image(path)
     # Ok, so this was fine. It was actually rgb. It was just ... distorted.
     ht, wd = img.size(1), img.size(2)
     if ht <= wd:
         ratio  = float(wd) / float(ht)
         # width, height
-        img = resize(img, int(imgSize * ratio), imgSize)
+        img = resize(img, int(img_size * ratio), img_size)
     else:
         ratio  = float(ht) / float(wd)
         # width, height
-        img = resize(img, imgSize, int(imgSize * ratio))
+        img = resize(img, img_size, int(img_size * ratio))
 
     if do_augment:
         if random.random() > 0.5:

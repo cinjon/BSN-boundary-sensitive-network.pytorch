@@ -30,7 +30,7 @@ num_gpus = 1 # NOTE
 
 
 def run(find_counter=None):
-    counter = 854 # NOTE: adjust each time 451, 715, 750, 782, 814
+    counter = 950 # NOTE: adjust each time 451, 715, 750, 782, 814, 854
     
     for tem_results_subdir in sorted(os.listdir(tem_results_dir)):
         # if counter - start_counter > 100:
@@ -103,7 +103,7 @@ def run(find_counter=None):
                                     func(__job, counter, email, code_directory)
                                 elif counter == find_counter:
                                     return __job
-    print(counter) # ended w 782, 814, 854, 950
+    print(counter) # ended w 782, 814, 854, 950, 1054
     
 if __name__ == '__main__':
     run()

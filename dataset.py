@@ -292,8 +292,10 @@ class TEMDataset(data.Dataset):
 class TEMImages(TEMDataset):
     def __init__(self, opt, subset=None, fps=30, image_dir=None, img_loading_func=None, video_info_path=None):
         self.do_augment = opt['do_augment'] and subset == 'train'
+        self.module = opt['representation_module']
+        self.ccc_img_size = opt.get('ccc_img_size')
         self.ext = 'npy'
-        if '240x426' in opt['gym_image_dir']:
+        if opt['dataset'] == 'gymnastics' and '240x426' in opt['gym_image_dir']:
             self.ext = 'png'
         super(TEMImages, self).__init__(opt, subset, feature_dirs=None, fps=fps, image_dir=image_dir, img_loading_func=img_loading_func, video_info_path=video_info_path) 
 
@@ -303,8 +305,15 @@ class TEMImages(TEMDataset):
         path = os.path.join(self.image_dir, name)
         path = Path(path)
         paths = [path / ('%010.4f.%s' % ((i / self.fps), self.ext)) for i in indices]
-        imgs = [self.img_loading_func(p.absolute(), do_augment=self.do_augment)
-                for p in paths if p.exists()]
+        if self.module == 'ccc':
+            imgs = [
+                self.img_loading_func(p.absolute(),
+                                      do_augment=self.do_augment,
+                                      img_size=self.ccc_img_size)
+                    for p in paths if p.exists()]
+        else:
+            imgs = [self.img_loading_func(p.absolute(), do_augment=self.do_augment)
+                    for p in paths if p.exists()]
         try:
             if type(imgs[0]) == np.array:
                 video_data = np.array(imgs)

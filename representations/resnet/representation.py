@@ -84,7 +84,7 @@ class Representation(nn.Module):
             self.fc_layer = nn.Linear(2048, 400)
 
     def forward(self, representation):
-        return self.fc_layer(out)
+        return self.fc_layer(representation)
         
         # # thumosimages shape representation is [800, 64, 44, 80]
         # print(representation.shape)

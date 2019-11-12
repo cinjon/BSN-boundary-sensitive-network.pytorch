@@ -1,6 +1,7 @@
 import copy
 import random
 
+import cv2
 import numpy as np
 from PIL import Image
 import torch
@@ -45,8 +46,14 @@ def to_torch(ndarray):
 
 
 def load_image(img_path):
-    img = np.load(img_path)
-    img = Image.fromarray(img)
+    img_path = str(img_path)
+    if img_path.endswith('png'):
+        img = cv2.imread(img_path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = Image.fromarray(img)
+    elif img_path.endswith('npy'):
+        img = np.load(img_path)
+        img = Image.fromarray(img)        
     return img
 
 

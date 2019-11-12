@@ -799,12 +799,15 @@ if __name__ == '__main__':
         print(counter, job, '\n', opt)
         opt.update(job)
         print(opt, flush=True)
+        print('\n***\n%s\n***\n' % opt['do_feat_conversion'])
         if 'debug' in mode:
             opt.update({'num_gpus': 2, 'data_workers': 12,
                         'name': 'dbg', 'counter': 0,
                         'tem_batch_size': 1,
                         # 'gym_image_dir': '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12',
-                        'local_comet_dir': None})
+                        'local_comet_dir': None,
+                        'dataset': 'thumosimages',
+                        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations',                         'ccc_img_size': 128})
 
     if 'debugrun' not in mode:
         main(opt)

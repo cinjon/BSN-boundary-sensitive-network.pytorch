@@ -65,6 +65,7 @@ def parse_opt():
     parser.add_argument('--tem_nonlinear_factor', type=float, default=0.01)
     parser.add_argument('--tem_reset_params', action='store_true')
     parser.add_argument('--gym_image_dir', type=str, default='/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12')
+    parser.add_argument('--ccc_img_size', type=int, default=256)
     parser.add_argument('--tsn_config', type=str, default='~/Code/BSN-boundary-sensitive-network.pytorch/representations/tsn/temp_tsn_rgb_bninception.py')
 
     # PEM model settings

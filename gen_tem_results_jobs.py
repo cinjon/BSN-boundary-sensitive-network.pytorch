@@ -56,7 +56,21 @@ matches = {
     # TSN RGB Gym 3 lulz. And a bunch more.
     4596: 5, 4593: 14, 4611: 7, 4599: 7, # DFC
     4659: 5, 4656: 1, 4647: 5, 4650: 1, # NFC Reg
-    4623: 3, 4620: 3, 4632: 2, 4617: 3 # NFC NF
+    4623: 3, 4620: 3, 4632: 2, 4617: 3, # NFC NF
+    # CCC FT DFC Gym:
+    4575: 4, 4578: 11, 4584: 4, 4554: 10, 4560: 11, 4572: 14,
+    # AMDIM NFC:
+    4440: 1,
+    # AMDIM NF:
+    4695: 1,
+    # Corrflow NF
+    4793: 14, 4779: 2, 4776: 2, 4802: 14, 4792: 11,
+    # TSN Thumos NFC Reg
+    4863: 2, 4872: 1,
+    # TSN Thumos NFC NF
+    4908: 8, 4905: 8, 4911: 8, 4926: 8, 4923: 8, 4914: 8,
+    # TSN Thumos DFC
+    4881: 1, 4896: 3, 4899: 1, 4902: 3
 }
 
 
@@ -92,4 +106,4 @@ for ns, ckpt_subdir in enumerate(sorted(os.listdir(ckpt_directory))):
     # print(sorted(_job.items()))
     fb_run_batch(_job, counter, email, code_directory)
     print('\n')                
-print(ns)
+print(ns+1)

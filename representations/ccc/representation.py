@@ -5,7 +5,9 @@ import torch.nn.functional as F
 
 
 THUMOS_OUTPUT_DIM = 330752 # 512*32*57  # at imgSize=150 it's 330752
+THUMOS_OUTPUT_DIM_128 = 237568 # 512*32*57  # at imgSize=150 it's 330752
 GYMNASTICS_OUTPUT_DIM = 933888 # 407040 ... at imgSize=150, it's 330752 ... strange?
+GYMNASTICS_OUTPUT_DIM_128 = 237568 # imgSize=125
 ACTIVITYNET_OUTPUT_DIM = 184832 # 524288 ... at imgSize=150, it's 184832
 
 

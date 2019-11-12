@@ -1,5 +1,6 @@
 from collections import namedtuple
 import os
+import sys
 import cv2
 import time
 import math
@@ -11,7 +12,7 @@ import numpy as np
 from glob import glob
 from PIL import Image
 
-from comet_ml import Experiment as CometExperiment
+from comet_ml import Experiment as CometExperiment, OfflineExperiment
 import torch
 import torch.nn as nn
 import torch.optim as optim
@@ -34,7 +35,18 @@ RESNET_OUTPUT_DIM = 2048
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", default="run", help="run, array, or job")
+parser.add_argument(
+    '--time',
+    type=float,
+    default=10,
+    help='the number of hours',
+)
 parser.add_argument("--not_pretrain", action="store_true", default=False)
+parser.add_argument('--local_comet_dir',
+		    type=str,
+		    default=None,
+		    help='local dir to process comet locally only. '
+		    'primarily for fb, will stop remote calls.')
 parser.add_argument('--name',
                     type=str,
                     help='the identifying name of this experiment.',
@@ -334,31 +346,47 @@ class LinearModel(nn.Module):
 def main(args):
     print('Pretrain? ', not args.not_pretrain)
     print(args.model)
-
-    comet_exp = CometExperiment(api_key="hIXq6lDzWzz24zgKv7RYz6blo",
-                                project_name="selfcifar",
-                                workspace="cinjon",
-                                auto_metric_logging=True,
-                                auto_output_logging=None,
-                                auto_param_logging=False)
+    start_time = time.time()
+    
+    if opt['local_comet_dir']:
+        comet_exp = OfflineExperiment(
+            api_key="hIXq6lDzWzz24zgKv7RYz6blo",
+            project_name="selfcifar",
+            workspace="cinjon",
+            auto_metric_logging=True,
+            auto_output_logging=None,
+            auto_param_logging=False,
+            offline_directory=opt['local_comet_dir'])
+    else:
+        comet_exp = CometExperiment(
+            api_key="hIXq6lDzWzz24zgKv7RYz6blo",
+            project_name="selfcifar",
+            workspace="cinjon",
+            auto_metric_logging=True,
+            auto_output_logging=None,
+            auto_param_logging=False)
     comet_exp.log_parameters(vars(args))
     comet_exp.set_name(args.name)
 
     # Build model
-    path = "/misc/kcgscratch1/ChoGroup/resnick/spaceofmotion/zeping/bsn"
+    # path = "/misc/kcgscratch1/ChoGroup/resnick/spaceofmotion/zeping/bsn"
     if args.model == "amdim":
-        hparams = load_hparams_from_tags_csv(os.path.join(path, "meta_tags.csv"))
+        hparams = load_hparams_from_tags_csv('/checkpoint/cinjon/amdim/meta_tags.csv')
+        # hparams = load_hparams_from_tags_csv(os.path.join(path, "meta_tags.csv"))
         model = AMDIMModel(hparams)
         if not args.not_pretrain:
-            model.load_state_dict(
-                torch.load(os.path.join(path, "_ckpt_epoch_434.ckpt"))["state_dict"])
+            # _path = os.path.join(path, "_ckpt_epoch_434.ckpt")
+            _path = '/checkpoint/cinjon/amdim/_ckpt_epoch_434.ckpt'
+            model.load_state_dict(torch.load(_path)["state_dict"])                
         else:
             print("AMDIM not loading checkpoint") # Debug
         linear_model = LinearModel(AMDIM_OUTPUT_DIM, args.num_classes)
     elif args.model == "ccc":
         model = CCCModel(None)
         if not args.not_pretrain:
-            checkpoint = torch.load(os.path.join(path, "TimeCycleCkpt14.pth"))
+            # _path = os.path.join(path, "TimeCycleCkpt14.pth")
+            _path = '/checkpoint/cinjon/spaceofmotion/bsn/TimeCycleCkpt14.pth'
+            checkpoint = torch.load(_path)
             base_dict = {
                 '.'.join(k.split('.')[1:]): v
                 for k, v in list(checkpoint['state_dict'].items())}
@@ -369,7 +397,9 @@ def main(args):
     elif args.model == "corrflow":
         model = CORRFLOWModel(None)
         if not args.not_pretrain:
-            checkpoint = torch.load(os.path.join(path, "corrflow.kineticsmodel.pth"))
+            _path = '/checkpoint/cinjon/spaceofmotion/supercons/corrflow.kineticsmodel.pth'
+            # _path = os.path.join(path, "corrflow.kineticsmodel.pth")
+            checkpoint = torch.load(_path)
             base_dict = {
                 '.'.join(k.split('.')[1:]): v
                 for k, v in list(checkpoint['state_dict'].items())}
@@ -433,8 +463,7 @@ def main(args):
     batch_size = args.batch_size * torch.cuda.device_count()
     # CIFAR-10
     if args.num_classes == 10:
-        data_path = ("/misc/kcgscratch1/ChoGroup/resnick/spaceofmotion/zeping/"
-                     "bsn/data/cifar-10-batches-py")
+        data_path = ("/private/home/cinjon/cifar-data/cifar-10-batches-py")
         _train_dataset = CIFAR_dataset(
             glob(os.path.join(data_path, "data*")),
             args.num_classes,
@@ -484,8 +513,7 @@ def main(args):
         #     val_dev_dataset, shuffle=False, batch_size=batch_size, num_workers=args.num_workers)
     # CIFAR-100
     elif args.num_classes == 100:
-        data_path = ("/misc/kcgscratch1/ChoGroup/resnick/spaceofmotion/zeping/"
-                     "bsn/data/cifar-100-python")
+        data_path = ("/private/home/cinjon/cifar-data/cifar-100-python")
         _train_dataset = CIFAR_dataset(
             [os.path.join(data_path, "train")],
             args.num_classes,
@@ -529,6 +557,10 @@ def main(args):
         train_acc = 0
         train_loss_sum = 0.0
         for iter, input in enumerate(train_dataloader):
+            if time.time() - start_time > args.time*3600 - 10 and comet_exp is not None:
+                comet_exp.end()
+                sys.exit(-1)
+            
             imgs = input[0].to(device)
             if args.model != "resnet":
                 imgs = imgs.unsqueeze(1)
@@ -704,8 +736,10 @@ def main(args):
         if val_acc > best_acc:
             best_acc = val_acc
             best_epoch = epoch
-            save_path = os.path.join(log_dir, "{}.pth".format(epoch))
-            torch.save(linear_model.state_dict(), save_path)
+            linear_save_path = os.path.join(log_dir, "{}.linear.pth".format(epoch))
+            model_save_path = os.path.join(log_dir, "{}.model.pth".format(epoch))
+            torch.save(linear_model.state_dict(), linear_save_path)
+            torch.save(model.state_dict(), model_save_path)            
 
         # Check bias and variance
         print("Epoch {} lr {} total: train_loss:{} train_acc:{} val_loss:{} val_acc:{}".format(

@@ -5,15 +5,20 @@ from . import TSN2D as tsn_helper
 
 
 GYMNASTICS_OUTPUT_DIM = 1024
+THUMOS_OUTPUT_DIM = 1024
 
 
 def img_loading_func(path, do_augment=False):
     mean=[104, 117, 128]
     std=[1, 1, 1]    
     path = str(path)
-    img = cv2.imread(path)
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-    img = img.astype(np.float32)
+    if path.endswith('png'):
+        img = cv2.imread(path)
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = img.astype(np.float32)
+    elif path.endswith('npy'):
+        img = np.load(path)
+        img = img.astype(np.float32)
 
     scale = (np.Inf, 256)
     img_group = [img]

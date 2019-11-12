@@ -72,9 +72,9 @@ class Representation(nn.Module):
         self.repr_layer1 = self.make_layer(ResidualBlock, channels, channels, 2, stride=2)
         self.repr_layer2 = self.make_layer(ResidualBlock, channels, channels, 2, stride=2)
         if opts['dataset'] == 'gymnastics':
-            self.fc_layer = nn.Linear(2432, 400)
+            self.fc_layer = nn.Linear(640, 400) # 2432
         elif opts['dataset'] == 'thumosimages':
-            self.fc_layer = nn.Linear(2432, 400)
+            self.fc_layer = nn.Linear(640, 400)
         elif opts['dataset'] == 'activitynet':
             self.fc_layer = nn.Linear(2432, 400)
 
