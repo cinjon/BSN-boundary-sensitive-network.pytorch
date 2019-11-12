@@ -723,7 +723,7 @@ class Struct:
 
 if __name__ == "__main__":
     if args.mode == "run":
-        main()
+        main(args)
     elif args.mode == "array":
         jobid = int(os.getenv('SLURM_ARRAY_TASK_ID'))
         if not jobid:
