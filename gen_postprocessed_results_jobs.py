@@ -37,7 +37,7 @@ for pem_results_subdir in os.listdir(pem_results_dir):
     c2 = int(c2)
     counter = c2
 
-    print(pem_results_subdir, c1, c2)
+    print(pem_results_subdir, c1, c2, '\n')
     if c1 in fixed:
         print('Got from fixed')
         job = fixed[c1]

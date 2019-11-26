@@ -35,6 +35,7 @@ RESNET_OUTPUT_DIM = 2048
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--mode", default="run", help="run, array, or job")
+parser.add_argument("--do_nonlinear", action="store_true", default=False)
 parser.add_argument(
     '--time',
     type=float,
@@ -339,6 +340,42 @@ class LinearModel(nn.Module):
         # x = self.fc2(x)
         return x
 
+
+class NonLinearModel(nn.Module):
+    def __init__(self, in_channels, num_classes, num_layers=3):
+        super(LinearModel, self).__init__()
+        self.in_channels = in_channels
+        self.num_classes = num_classes
+        self.num_layers = num_layers
+
+        self.nonlinear = nn.Sequential([
+            nn.Sequential([
+                nn.Linear(self.in_channels, self.in_channels),
+                nn.ReLU()
+            ])
+            for _ in num_layers
+        ])
+        self.linear = nn.Linear(self.in_channels, self.num_classes)
+        self.linear.weight.data.normal_(0, 0.01)
+        self.linear.bias.data.zero_()
+
+        # self.fc1 = nn.Linear(self.in_channels, 512)
+        # self.fc2 = nn.Linear(512, self.num_classes)
+        # self.relu = nn.ReLU(inplace=True)
+        # self.fc1.weight.data.normal_(0, 0.01)
+        # self.fc1.bias.data.zero_()
+        # self.fc2.weight.data.normal_(0, 0.01)
+        # self.fc2.bias.data.zero_()
+
+
+    def forward(self, x):
+        x = x.view(x.size(0), -1)
+        x = self.nonlinear(x)
+        x = self.linear(x)
+        # x = self.relu(self.fc1(x))
+        # x = self.fc2(x)
+        return x
+    
 #######################################################
 # Main
 #######################################################
@@ -370,6 +407,8 @@ def main(args):
 
     # Build model
     # path = "/misc/kcgscratch1/ChoGroup/resnick/spaceofmotion/zeping/bsn"
+    linear_cls = NonLinearModel if args.do_nonlinear else LinearModel
+    
     if args.model == "amdim":
         hparams = load_hparams_from_tags_csv('/checkpoint/cinjon/amdim/meta_tags.csv')
         # hparams = load_hparams_from_tags_csv(os.path.join(path, "meta_tags.csv"))
@@ -380,7 +419,7 @@ def main(args):
             model.load_state_dict(torch.load(_path)["state_dict"])                
         else:
             print("AMDIM not loading checkpoint") # Debug
-        linear_model = LinearModel(AMDIM_OUTPUT_DIM, args.num_classes)
+        linear_model = linear_cls(AMDIM_OUTPUT_DIM, args.num_classes)
     elif args.model == "ccc":
         model = CCCModel(None)
         if not args.not_pretrain:
@@ -393,7 +432,7 @@ def main(args):
             model.load_state_dict(base_dict)
         else:
             print("CCC not loading checkpoint") # Debug
-        linear_model = LinearModel(CCC_OUTPUT_DIM, args.num_classes).to(device)
+        linear_model = linaer_cls(CCC_OUTPUT_DIM, args.num_classes) #.to(device)
     elif args.model == "corrflow":
         model = CORRFLOWModel(None)
         if not args.not_pretrain:
@@ -406,7 +445,7 @@ def main(args):
             model.load_state_dict(base_dict)
         else:
             print("CorrFlow not loading checkpoing") # Debug
-        linear_model = LinearModel(CORRFLOW_OUTPUT_DIM, args.num_classes)
+        linear_model = linear_cls(CORRFLOW_OUTPUT_DIM, args.num_classes)
     elif args.model == "resnet":
         if not args.not_pretrain:
             resnet = torchvision.models.resnet50(pretrained=True)
@@ -415,7 +454,7 @@ def main(args):
             print("ResNet not loading checkpoint") # Debug
         modules = list(resnet.children())[:-1]
         model = nn.Sequential(*modules)
-        linear_model = LinearModel(RESNET_OUTPUT_DIM, args.num_classes)
+        linear_model = linear_cls(RESNET_OUTPUT_DIM, args.num_classes)
     else:
         raise Exception("model type has to be amdim, ccc, corrflow or resnet")
 
@@ -454,8 +493,9 @@ def main(args):
 
     # Set up log dir
     now = datetime.datetime.now()
-    log_dir = "{}{:%Y%m%dT%H%M}".format(args.model, now)
-    log_dir = os.path.join("weights", log_dir)
+    log_dir = '/checkpoint/cinjon/spaceofmotion/bsn/cifar-%d-weights/%s/%s' % (args.num_classes, args.model, args.name)
+    # log_dir = "{}{:%Y%m%dT%H%M}".format(args.model, now)
+    # log_dir = os.path.join("weights", log_dir)
     if not os.path.exists(log_dir):
         os.makedirs(log_dir)
     print("Saving to {}".format(log_dir))
@@ -557,7 +597,7 @@ def main(args):
         train_acc = 0
         train_loss_sum = 0.0
         for iter, input in enumerate(train_dataloader):
-            if time.time() - start_time > args.time*3600 - 10 and comet_exp is not None:
+            if time.time() - start_time > args.time*3600 - 300 and comet_exp is not None:
                 comet_exp.end()
                 sys.exit(-1)
             
@@ -702,6 +742,10 @@ def main(args):
         val_acc = 0
         val_loss_sum = 0.0
         for iter, input in enumerate(val_dataloader):
+            if time.time() - start_time > args.time*3600 - 300 and comet_exp is not None:
+                comet_exp.end()
+                sys.exit(-1)
+                
             imgs = input[0].to(device)
             if args.model != "resnet":
                 imgs = imgs.unsqueeze(1)

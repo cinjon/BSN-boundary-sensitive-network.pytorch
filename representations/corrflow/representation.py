@@ -75,7 +75,7 @@ class Representation(nn.Module):
         if opts['dataset'] == 'gymnastics':
             self.fc_layer = nn.Linear(7168, 400) # 7168, 3584
         elif opts['dataset'] == 'thumosimages':
-            self.fc_layer = nn.Linear(1920, 400) # 
+            self.fc_layer = nn.Linear(3840, 400) # 1920
         elif opts['dataset'] == 'activitynet':
             self.fc_layer = nn.Linear(2560, 400)
 

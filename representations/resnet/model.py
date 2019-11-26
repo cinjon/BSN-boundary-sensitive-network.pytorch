@@ -87,7 +87,7 @@ class Model(nn.Module):
         self.opts = opts
         if self.opts['dataset'] != 'gymnasticsfeatures':
             print('Doing resnet', flush=True)
-            self.resnet = resnet50(pretrained=True, progress=True)
+            self.resnet = resnet50(pretrained=not opts['do_random_model'], progress=True)
         else:
             print('NOT DOING resnet', flush=True)
         

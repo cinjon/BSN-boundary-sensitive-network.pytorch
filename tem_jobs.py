@@ -67,6 +67,8 @@ def do_fb_jobarray(counter, job, representation_module, time, find_counter, do_j
                 if representation_module == 'corrflow' and corrflow_feat == 'dfc':
                     continue
                 if representation_module == 'amdim':
+                    if amdim_feat == 'dfc':
+                        continue
                     do_gradient_checkpointing = True
                 if representation_module == 'resnet' and not resnet_nfc:
                     continue
@@ -82,7 +84,7 @@ def do_fb_jobarray(counter, job, representation_module, time, find_counter, do_j
                                     continue
                                 
                                 counter += 1
-                                
+
                                 _job = {k: v for k, v in job.items()}
                                 _job['counter'] = counter
                                 if representation_module == 'corrflow':
@@ -123,10 +125,13 @@ def do_fb_jobarray(counter, job, representation_module, time, find_counter, do_j
 
                                 if find_counter == counter:
                                     return counter, _job
-                                jobarray.append(counter)
+
+                                # NOTE: This is happening.
+                                if tem_l2_loss == 0:
+                                    jobarray.append(counter)
                                 
     if not find_counter and do_job:
-        jobname = 'temtr.%s.%s.%dhr.cnt%d' % (_job['dataset'], representation_module, time, counter)
+        jobname = 'temtr.%s.%s.%s.%dhr.cnt%d' % (_job['dataset'], _job['name'], representation_module, time, counter)
         jobcommand = "python main.py --mode jobarray_train"
         print("Size: ", len(jobarray), jobcommand, " /.../ ", jobname)
 
@@ -175,6 +180,10 @@ def _get_representation_info(module):
             '/checkpoint/cinjon/amdim/_ckpt_epoch_434.ckpt',
             '/checkpoint/cinjon/amdim/meta_tags.csv'
         ),
+        'tsn': (
+            '/private/home/cinjon/Code/mmaction/modelzoo/tsn_2d_rgb_bninception_seg3_f1s1_b32_g8-98160339.pth',
+            None
+        )
     }.get(module)
 
 
@@ -1775,7 +1784,7 @@ def run(find_counter=None):
         'gym_image_dir': '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.240x426.12.tsn.12'
     }
     num_gpus = 8
-    print('Counter Before Resnet DFC: ', counter) # 
+    # print('Counter Before Resnet DFC: ', counter) #  4928
     for dataset in ['gymnastics', 'thumosimages']:
         time = 12
         _job = {k: v for k, v in job.items()}
@@ -1854,7 +1863,7 @@ def run(find_counter=None):
         'tem_batch_size': 2
     }
     num_gpus = 8
-    print('Counter Before AMDIM Thumos NFC: ', counter) # 5120
+    # print('Counter Before AMDIM Thumos NFC: ', counter) # 5120
     for no_freeze in [False, True]:
         for tem_milestones in ['5,15', '5,20']:
             for tem_step_gamma in [0.1, 0.5]:
@@ -1886,10 +1895,91 @@ def run(find_counter=None):
                             if find_counter == counter:
                                 return counter, _job
                             
-                            if not find_counter:
-                                func(_job, counter, email, code_directory)
+                            # if not find_counter:
+                            #     func(_job, counter, email, code_directory)
     
-                                
+
+    # Resnet, TSN, CCC, Corrflow, Amdim on Gymnastics and Thumos w Random init.
+    job = {
+        'name': '2019.11.13.random',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'sampler_mode': 'off',
+        'gym_image_dir': '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.240x426.12.tsn.12',
+        'do_random_model': True
+    }
+    num_gpus = 8
+    # print('Counter Before Resnet DFC: ', counter) # 5168
+    for representation_module in ['resnet', 'tsn', 'ccc', 'corrflow', 'amdim']:
+        for dataset in ['gymnastics', 'thumosimages']:
+            time = 8
+            _job = {k: v for k, v in job.items()}
+            _job['dataset'] = dataset
+            _job['representation_module'] = representation_module
+            if dataset == 'thumosimages':
+                _job.update({
+                    'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations'
+                })
+            elif dataset == 'gymnastics':
+                _job.update({
+                    'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations'
+                })
+
+            do_job = (representation_module == 'corrflow' and dataset == 'thumosimages') or representation_module == 'ccc'
+            do_job = representation_module == 'ccc' and dataset == 'gymnastics'
+            counter, _job = do_fb_jobarray(
+                counter, _job, representation_module, time, find_counter=find_counter, do_job=False, amdim_feat='dfc', resnet_dfc=True, resnet_nfc=True)
+            if find_counter and _job:
+                return counter, _job
+
+
+    # ResNet nonlinear DFC yo.
+    job = {
+        'name': '2019.11.14.resnldfc',
+        'module': 'TEM',
+        'mode': 'train',
+        'tem_compute_loss_interval': 25,
+        'tem_epoch': 25,
+        'do_representation': True,
+        'num_videoframes': 100,
+        'skip_videoframes': 5,
+        'checkpoint_path': checkpoint_path,
+        'tem_nonlinear_factor': 0.1,
+        'sampler_mode': 'off',
+        'gym_image_dir': '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.240x426.12.tsn.12',
+    }
+    num_gpus = 8
+    print('Counter Before Resnet NL DFC: ', counter) # 5936
+    for do_random_model in [False, True]:
+        for representation_module in ['resnet']:
+            for dataset in ['gymnastics', 'thumosimages']:
+                time = 8
+                _job = {k: v for k, v in job.items()}
+                _job['dataset'] = dataset
+                _job['representation_module'] = representation_module
+                _job['do_random_model'] = do_random_model
+                if dataset == 'thumosimages':
+                    _job.update({
+                        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations'
+                })
+                elif dataset == 'gymnastics':
+                    _job.update({
+                        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/gymnastics_annotations'
+                })
+
+                do_job = not do_random_model and dataset == 'gymnastics'
+                counter, _job = do_fb_jobarray(
+                    counter, _job, representation_module, time, find_counter=find_counter, do_job=do_job, resnet_dfc=True, resnet_nfc=False)
+                if find_counter and _job:
+                    return counter, _job
+            
                                 
 if __name__ == '__main__':
     run()

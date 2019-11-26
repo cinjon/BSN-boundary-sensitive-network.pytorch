@@ -305,7 +305,11 @@ def BSN_Train_TEM(opt):
             os.path.join(opt["checkpoint_path"], opt['name']))
         if opt['representation_checkpoint']:
             # print(model.representation_model.backbone.inception_5b_3x3.weight[0][0])
-            partial_load(opt['representation_checkpoint'], model)
+            if opt['do_random_model']:
+                print('DOING RANDOM MDOEL!!!')
+            else:
+                print('DOING Pretrianed modelll!!!')                
+                partial_load(opt['representation_checkpoint'], model)
             # print(model.representation_model.backbone.inception_5b_3x3.weight[0][0])
         if not opt['no_freeze']:
             for param in model.representation_model.parameters():
@@ -798,16 +802,19 @@ if __name__ == '__main__':
         counter, job = tem_jobs.run(find_counter=jobid)
         print(counter, job, '\n', opt)
         opt.update(job)
-        print(opt, flush=True)
+        print(sorted(opt.items()), flush=True)
         print('\n***\n%s\n***\n' % opt['do_feat_conversion'])
         if 'debug' in mode:
             opt.update({'num_gpus': 2, 'data_workers': 12,
                         'name': 'dbg', 'counter': 0,
-                        'tem_batch_size': 1,
+                        'tem_batch_size': 1, 'do_feat_conversion': True,
                         # 'gym_image_dir': '/checkpoint/cinjon/spaceofmotion/sep052019/rawframes.426x240.12',
                         'local_comet_dir': None,
                         'dataset': 'thumosimages',
-                        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations',                         'ccc_img_size': 128})
+                        'video_info': '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch/data/thumos14_annotations',
+                        'ccc_img_size': 128,
+                        # 'do_random_model': True
+            })
 
     if 'debugrun' not in mode:
         main(opt)

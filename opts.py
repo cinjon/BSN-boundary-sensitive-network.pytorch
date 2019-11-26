@@ -68,6 +68,7 @@ def parse_opt():
     parser.add_argument('--ccc_img_size', type=int, default=256)
     parser.add_argument('--tsn_config', type=str, default='~/Code/BSN-boundary-sensitive-network.pytorch/representations/tsn/temp_tsn_rgb_bninception.py')
 
+    
     # PEM model settings
     parser.add_argument('--pem_feat_dim', type=int, default=32)
     parser.add_argument('--pem_hidden_dim', type=int, default=256)
@@ -143,7 +144,8 @@ def parse_opt():
     parser.add_argument('--do_augment', action='store_true')
     parser.add_argument('--do_representation', action='store_true')
     parser.add_argument('--do_feat_conversion', action='store_true')
-    parser.add_argument('--no_freeze', action='store_true', default=False)    
+    parser.add_argument('--no_freeze', action='store_true', default=False)
+    parser.add_argument('--do_random_model', action='store_true') 
     parser.add_argument('--do_gradient_checkpointing', action='store_true', default=False)    
     parser.add_argument(
         '--representation_module',

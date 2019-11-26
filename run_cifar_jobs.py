@@ -2,7 +2,7 @@ import os
 import sys
 
 
-def do_jobarray(counter, job, time, find_counter, do_job=False):
+def do_jobarray(counter, job, time, find_counter, do_job=False, do_pretrain=True):
     # code_directory = '/home/resnick/Code/BSN-boundary-sensitive-network.pytorch'
     code_directory = '/private/home/cinjon/Code/BSN-boundary-sensitive-network.pytorch'    
     num_gpus = 1
@@ -28,11 +28,10 @@ def do_jobarray(counter, job, time, find_counter, do_job=False):
         batch_sizes = [256]
     else:
         batch_sizes = [64]
-    lrs = [0.3, 0.1, 0.03]
+    lrs = [0.6, 0.3, 0.1]
     min_lrs = [0.0003, 0.00003]
     weight_decays = [0.0, 0.0005, 0.00005]
     lr_intervals = [20, 50]
-    epochs = 500
     
     for bs in batch_sizes:
         for lr in lrs:
@@ -40,6 +39,9 @@ def do_jobarray(counter, job, time, find_counter, do_job=False):
                 for wd in weight_decays:
                     for lr_int in lr_intervals:
                         for not_pretrain in [True, False]:
+                            if not do_pretrain and not not_pretrain:
+                                continue
+                            
                             counter += 1
                             _job = {k: v for k, v in job.items()}
                             _job['counter'] = counter
@@ -134,10 +136,34 @@ def do(find_counter=None, do_job=False):
     for model in ['ccc', 'resnet', 'corrflow']:
         _job = job.copy()
         _job['model'] = model
-        counter, _job = do_jobarray(counter, _job, time=10, find_counter=find_counter, do_job=do_job)
+        counter, _job = do_jobarray(counter, _job, time=10, find_counter=find_counter, do_job=False)
         if find_counter and find_counter == counter:
             return counter, _job
         
 
+    job = {
+        'name': '2019.11.13.c10.np', 'num_classes': 10, 'epochs': 500
+    }
+    for model in ['resnet', 'amdim', 'corrflow']:
+        _job = job.copy()
+        _job['model'] = model
+        counter, _job = do_jobarray(counter, _job, time=9, find_counter=find_counter, do_job=False, do_pretrain=False)
+        if find_counter and find_counter == counter:
+            return counter, _job
+
+
+    job = {
+        'name': '2019.11.13.c100', 'num_classes': 100, 'epochs': 500,
+    }
+    for model in ['resnet', 'corrflow', 'ccc', 'amdim']:
+        _job = job.copy()
+        _job['model'] = model
+        counter, _job = do_jobarray(counter, _job, time=1, find_counter=find_counter, do_job=model == 'amdim')
+        if find_counter and find_counter == counter:
+            return counter, _job
+
+
+        
+        
 if __name__ == '__main__':
     do(do_job=True)

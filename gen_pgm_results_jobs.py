@@ -24,6 +24,7 @@ regex = re.compile('.*(\d{5}).*')
 check = 0
 for tem_results_subdir in os.listdir(tem_results_dir):
     counter = int(regex.match(tem_results_subdir).groups()[0])
+
     
     print(tem_results_dir, tem_results_subdir, counter)
     job = run(find_counter=counter)

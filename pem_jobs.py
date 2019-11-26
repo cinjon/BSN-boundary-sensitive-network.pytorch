@@ -30,8 +30,9 @@ num_gpus = 1 # NOTE
 
 
 def run(find_counter=None):
-    counter = 950 # NOTE: adjust each time 451, 715, 750, 782, 814, 854
-    
+    counter = 1622 # NOTE: adjust each time 451, 715, 750, 782, 814, 854, 950, 1054, 1150, 1382
+
+    check = 0
     for tem_results_subdir in sorted(os.listdir(tem_results_dir)):
         # if counter - start_counter > 100:
         #     print('Stopping at %d' % counter)
@@ -98,12 +99,13 @@ def run(find_counter=None):
                                 __job['pem_lr_milestones'] = milestones
                                 __job['pem_step_gamma'] = pem_step_gamma
                                 __job['name'] = '%s-%05d' % (_job['name'], counter)
-                                
+
+                                check += 1
                                 if not find_counter:
                                     func(__job, counter, email, code_directory)
                                 elif counter == find_counter:
                                     return __job
-    print(counter) # ended w 782, 814, 854, 950, 1054
+    print(counter, check, check // 8) # ended w 782, 814, 854, 950, 1054, 1150, 1382, 1486, 1622
     
 if __name__ == '__main__':
     run()

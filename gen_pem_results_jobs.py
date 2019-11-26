@@ -61,7 +61,48 @@ matches = {
     # CorrFLow NFC NF:
     4802: 1, 4779: 16,
     # CCC FT
-    4560: 34, 4584: 32, 4572: 4, 4575: 3, 4554: 36, 4578: 14
+    4560: 34, 4584: 32, 4572: 4, 4575: 3, 4554: 36, 4578: 14,
+    # TSN Thumos DFC
+    4896: 15, 4899: 28, 4902: 6, 4881: 9,
+    # TSN THumos NFC Reg
+    4863: 0, 4872: 12,
+    # TSN Thumos NFC NF
+    4914: 1, 4908: 0, 4923: 2, 4905: 1, 4911: 2, # Done
+    # DFC Resnet Reg: Gym
+    4971: 24, 4956: 21, 4965: 27, 4974: 26,
+    # DFC Resnet-Rand: Gym
+    5256: 30, 5244: 20, 5247: 28, 5238: 13, 5241: 30, 5262: 31, 5253: 27, # Done
+    # NFC Resnet-Rand Reg: Gym
+    5193: 10, 5175: 31, 5187: 25, 5181: 21, 5211: 13, 5199: 30, # Done
+    # DFC Resnet NotRand: Thumos
+    4989: 8, 4980: 10, # Done
+    # DFC Resnet Rand: Thumos
+    5343: 6, 5355: 3, 5319: 0, 5325: 1, 5349: 6, # Done
+    # NFC Reg ResNet Rand: Thumos
+    5307: 5, 5271: 2, 5274: 1, 5295: 2, 5277: 3, # Done
+    # TSN Gym Rand NFC
+    5370: 23, 5388: 29, 5373: 27, 5391: 23,
+    # TSN Rand DFC:
+    5445: 30, 5442: 26, # done
+    # CorrFlow Rand DFC Gymnastics
+    5712: 16, 5733: 18, 5742: 25, 5718: 4,
+    # Corrflow Rand DFC ThumosImages
+    5823: 2, 5802: 2, 5832: 9, 5808: 2,
+    # CCC Thumos Rand dFC
+    5646: 4, 5634: 6, 5619: 13, 5640: 2, 5628: 6,  # done?
+    # Thumos Resnet Rand NL DFC:
+    6108: 6, 6123: 12, 6102: 5, 6090: 4, 6081: 4, 6114: 19,
+    # Thumos Resnet Reg NL DFC:
+    6030: 4, 6027: 25, 6015: 9, 6018: 24,
+    # Gymnastics Resnet Rand NL DFC:
+    6054: 26, 6048: 24, 6075: 32, 6069: 31, 6057: 21, 6078: 19, 6039: 21,
+    # TSN Rnad DFC Thumos: 
+    5538: 8, 5547: 14,
+    # Thumos Rand TSN NFC
+    5475: 4, 5478: 24,
+    # Gymnastics CCC Reg Rand:
+    5565: 18, 5586: 18, 5559: 18, 5598: 18, 5571: 28, 5580: 18
+    
 }
 
 

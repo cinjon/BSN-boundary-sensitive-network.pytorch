@@ -70,16 +70,51 @@ matches = {
     # TSN Thumos NFC NF
     4908: 8, 4905: 8, 4911: 8, 4926: 8, 4923: 8, 4914: 8,
     # TSN Thumos DFC
-    4881: 1, 4896: 3, 4899: 1, 4902: 3
+    4881: 1, 4896: 3, 4899: 1, 4902: 3,
+    # DFC Resnet Reg
+    4971: 8, 4956: 3, 4965: 7, 4974: 6,
+    # DFC Resnet-Rand
+    5256: 19, 5244: 14, 5247: 13, 5238: 21, 5241: 22, 5262: 10, 5253: 7,
+    # NFC Resnet-Rand Reg
+    5193: 21, 5175: 12, 5187: 18, 5181: 13, 5211: 10, 5199: 8, # In the queue.
+    # DFC Resnet NotRand:
+    4989: 2, 4980: 3,
+    # DFC Resnet Rand
+    5343: 11, 5355: 25, 5319: 16, 5325: 24, 5349: 16,
+    # NFC Reg ResNet Rand
+    5307: 17, 5271: 17, 5274: 24, 5295: 13, 5277: 25, # done
+    # TSN Gym Rand NFC:
+    5370: 7, 5388: 5, 5373: 4, 5391: 7,
+    # TSN Rand DFC 
+    5442: 3, 5445: 3, # done
+    # CorrFlow Rand DFC Gymnastics
+    5712: 7, 5733: 5, 5742: 7, 5718: 19,
+    # Corrflow Rand DFC ThumosImages
+    5823: 10, 5802: 10, 5832: 13, 5808: 18,
+    # CCC Thumos Rand dFC
+    5646: 9, 5634: 21, 5619: 4, 5640: 9, 5628: 13, # done
+    # Thumos Resnet Rand NL DFC:
+    6108: 10, 6123: 8, 6102: 16, 6090: 7, 6081: 11, 6114: 14,
+    # Thumos Resnet Reg NL DFC:
+    6030: 3, 6027: 3, 6015: 3, 6018: 3,
+    # Gymnastics Resnet Rand NL DFC:
+    6054: 10, 6048: 8, 6075: 8, 6069: 18, 6057: 9, 6078: 9, 6039: 24, # done
+    # TSN Rnad DFC Thumos: 
+    5538: 3, 5547: 2,
+    # Thumos Rand TSN NFC
+    5475: 1, 5478: 1,
+    # Gymnastics CCC Reg Rand:
+    5565: 4, 5586: 4, 5559: 4, 5598: 4, 5571: 4, 5580: 4
 }
 
 
 num_gpus = 8
+check = 0
 for ns, ckpt_subdir in enumerate(sorted(os.listdir(ckpt_directory))):
     counter = int(regex.match(ckpt_subdir).groups()[0])
     
     print(counter, ckpt_subdir)
-    
+
     _job = run(find_counter=counter)
     if type(_job) == tuple:
         _job = _job[1]
@@ -104,6 +139,7 @@ for ns, ckpt_subdir in enumerate(sorted(os.listdir(ckpt_directory))):
         _job['time'] = 10
     print(_job['dataset'], _job['representation_module'], _job['do_feat_conversion'])
     # print(sorted(_job.items()))
+    check += 1
     fb_run_batch(_job, counter, email, code_directory)
     print('\n')                
-print(ns+1)
+print(ns+1, check)
